@@ -510,6 +510,7 @@ def _add_epicenter(
     markeredgecolor='black',
     label='Epicenter',
     alpha=0.5,
+    zorder=10
 ):
     """## adding epicenter."""
     ax.plot(
@@ -521,7 +522,7 @@ def _add_epicenter(
         markeredgecolor=markeredgecolor,
         label=label,
         alpha=alpha,
-        zorder=10,
+        zorder=zorder
     )
 
 
@@ -1201,18 +1202,24 @@ def plot_events_mapview(
     catalogs: list[pd.DataFrame],
     catalogs_color: list[str],
     catalogs_name: list[str],
+    gafocal_file: Path | pd.DataFrame | None = None,
+    focal_size_mapping=focal_size_mapping,
     catalog_filter_: dict | None = None,
     title='catalog_comparison',
-    gamma_main_eq=(),
-    h3dd_main_eq=(),
-    gdms_main_eq=(),
-    main_eq_size=10,
+    eq_list=[],
     plot_station_name=True,
     savefig=True,
     fig_dir: Path | None = None,
     plot_profile=True,
     h3dd_mode=False,
-    kde_mode=False
+    kde_mode=False,
+    kde_min=0.0,
+    legend_on_map=True,
+    temporal=False,
+    depth_set=[0, 60],
+    station_mask=station_mask,
+    profile_scatter_size=5,
+    size_mapping=size_mapping
 ):
     """
     catalog should at least contains the lon and lat.
@@ -1242,6 +1249,7 @@ def plot_events_mapview(
             catalog_filter_['min_lat'],
             catalog_filter_['max_lat'],
         ]
+    print(region)
     get_mapview(region=region, ax=geo_ax, title=title)
 
     # ax setting
@@ -1257,7 +1265,8 @@ def plot_events_mapview(
         region=region,
         plot_station_name=plot_station_name,
         text_dist=0.005,
-        zorder=6
+        zorder=6,
+        station_mask=station_mask
     )
 
     manual_elements = [
@@ -1280,7 +1289,7 @@ def plot_events_mapview(
         )
 
         # get the size corresponding to magnitude
-        catalog.loc[:, 'size'] = catalog['magnitude'].apply(_get_size)
+        catalog.loc[:, 'size'] = catalog['magnitude'].map(lambda x: _get_size(x, size_mapping=size_mapping))
 
         # add all events
         event_num = len(catalog)
@@ -1288,125 +1297,203 @@ def plot_events_mapview(
         # kde calculation
         if kde_mode:
             X, Y, density = calc_kde(catalog)
-            geo_ax.imshow(density, extent=region, origin='lower', alpha=0.7, cmap=plt.cm.gist_earth_r, zorder=5)
-            geo_ax.contour(X, Y, density, levels=10, alpha=0.7, color='k', zorder=5)
-        geo_ax.scatter(
-            catalog['longitude'],
-            catalog['latitude'],
-            s=catalog['size'],
-            c=color,
-            alpha=0.5,
-            label=f'{name} Event num: {event_num}',
-            zorder=4,
-        )
-        manual_elements.append(
-            Line2D(
-                [0],
-                [0],
-                marker='.',
-                color='w',
-                label=f'{name} Event num: {event_num}',
-                markersize=7,
-                markerfacecolor=color,
-                markeredgecolor='none',
-            )
-        )
-        if plot_profile:
-            axes[0, 1].scatter(
-                catalog['depth_km'],
-                catalog['latitude'],
-                s=5,
-                c=color,
-                edgecolors='none',
-                alpha=0.5,
-                rasterized=True,
-            )
-            if gdms_main_eq:
-                _add_epicenter(
-                    x=gdms_main_eq[2],
-                    y=gdms_main_eq[1],
-                    ax=axes[0, 1],
-                    size=main_eq_size,
-                    alpha=0.7,
-                    color='yellow',
-                )               
-            if h3dd_main_eq:
-                _add_epicenter(
-                    x=h3dd_main_eq[2],
-                    y=h3dd_main_eq[1],
-                    ax=axes[0, 1],
-                    size=main_eq_size,
-                    alpha=0.7,
-                    color='darkorange',
-                )         
-            axes[1, 0].scatter(
-                catalog['longitude'],
-                catalog['depth_km'],
-                s=5,
-                c=color,
-                edgecolors='none',
-                alpha=0.5,
-                rasterized=True,
-            )
-            if gdms_main_eq:
-                _add_epicenter(
-                    x=gdms_main_eq[0],
-                    y=gdms_main_eq[2],
-                    ax=axes[1, 0],
-                    size=main_eq_size,
-                    alpha=0.7,
-                    color='yellow',
-                )                  
-            if h3dd_main_eq:
-                _add_epicenter(
-                    x=h3dd_main_eq[0],
-                    y=h3dd_main_eq[2],
-                    ax=axes[1, 0],
-                    size=main_eq_size,
-                    alpha=0.7,
-                    color='darkorange',
+            # geo_ax.imshow(density, extent=region, origin='lower', alpha=0.7, cmap=plt.cm.gist_earth_r, zorder=5, vmin=kde_min)
+            levels = np.linspace(kde_min, density.max(), 10)
+            contour_lines = geo_ax.contourf(X, Y, density, levels=levels, alpha=0.7, cmap="gist_earth_r", zorder=5)
+            geo_ax.clabel(contour_lines, inline=True, fontsize=8, fmt="%.2f")
+        
+        # adding temporal feature
+        if temporal:
+            colormap = plt.cm.viridis
+            norm = mcolors.Normalize(
+                vmin=catalog['day'].min(),
+                vmax=catalog['day'].max()
+                )  # Normalize days to range [0, 1]
+            for day, group in catalog.groupby('day'):
+                logging.info(f'day {day}: {len(group)}')
+                color = colormap(norm(day))
+                geo_ax.scatter(
+                    group['longitude'],
+                    group['latitude'],
+                    s=group['size'],
+                    c=color,
+                    alpha=0.5,
+                    label=f'Day {day} Event num: {len(group)}',
+                    zorder=3,
                 )
+                manual_elements.append(
+                    Line2D(
+                        [0],
+                        [0],
+                        marker='.',
+                        color='w',
+                        label=f'Day {day} Event num: {len(group)}',
+                        markersize=7,
+                        markerfacecolor=color,
+                        markeredgecolor='none',
+                    )
+                )
+                if plot_profile:
+                    axes[0, 1].scatter(
+                        group['depth_km'],
+                        group['latitude'],
+                        s=5,
+                        c=color,
+                        edgecolors='none',
+                        alpha=0.5,
+                        rasterized=True,
+                    )
+                    if len(eq_list) > 0:
+                        for eq_tuple in eq_list:
+                            _add_epicenter(
+                                x=eq_tuple[2],
+                                y=eq_tuple[1],
+                                ax=axes[0, 1],
+                                size=eq_tuple[4],
+                                alpha=0.7,
+                                color=eq_tuple[3],
+                            )                                     
+                    axes[1, 0].scatter(
+                        group['longitude'],
+                        group['depth_km'],
+                        s=5,
+                        c=color,
+                        edgecolors='none',
+                        alpha=0.5,
+                        rasterized=True,
+                    )
+                    if len(eq_list) > 0:
+                        for eq_tuple in eq_list:
+                            _add_epicenter(
+                                x=eq_tuple[0],
+                                y=eq_tuple[2],
+                                ax=axes[1, 0],
+                                size=eq_tuple[4],
+                                alpha=0.7,
+                                color=eq_tuple[3],
+                            )     
+            sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
+            sm.set_array([])
+            # Create an inset for the colorbar within geo_ax
+            cbar_ax = inset_axes(
+                geo_ax,  # Parent axis (geo_ax)
+                width="3%",  # Width of the colorbar relative to geo_ax
+                height="50%",  # Height of the colorbar relative to geo_ax
+                loc="lower left",  # Location inside the geo_ax
+                bbox_to_anchor=(0.025, 0.025, 0.85, 0.9),  # Adjust position within geo_ax
+                bbox_transform=geo_ax.transAxes,  # Use geo_ax coordinates
+                borderpad=0,  # Padding around the inset
+            )
+            cbar = plt.colorbar(sm, cax=cbar_ax, orientation='vertical')
+            cbar.set_label(f"Day Since {catalog['month'].min()}/{catalog['day'].min()}")                                
+
+        else:            
+            geo_ax.scatter(
+                catalog['longitude'],
+                catalog['latitude'],
+                s=catalog['size'],
+                c=color,
+                alpha=0.5,
+                label=f'{name} Event num: {event_num}',
+                zorder=6,
+            )
+            manual_elements.append(
+                Line2D(
+                    [0],
+                    [0],
+                    marker='.',
+                    color='w',
+                    label=f'{name} Event num: {event_num}',
+                    markersize=7,
+                    markerfacecolor=color,
+                    markeredgecolor='none',
+                )
+            )
+            if plot_profile:
+                axes[0, 1].scatter(
+                    catalog['depth_km'],
+                    catalog['latitude'],
+                    s=profile_scatter_size,
+                    c=color,
+                    edgecolors='none',
+                    alpha=0.5,
+                    rasterized=True,
+                )
+                if len(eq_list) > 0:
+                    for eq_tuple in eq_list:
+                        _add_epicenter(
+                            x=eq_tuple[2],
+                            y=eq_tuple[1],
+                            ax=axes[0, 1],
+                            size=eq_tuple[4],
+                            alpha=0.7,
+                            color=eq_tuple[3],
+                        )                                     
+                axes[1, 0].scatter(
+                    catalog['longitude'],
+                    catalog['depth_km'],
+                    s=profile_scatter_size,
+                    c=color,
+                    edgecolors='none',
+                    alpha=0.5,
+                    rasterized=True,
+                )
+                if len(eq_list) > 0:
+                    for eq_tuple in eq_list:
+                        _add_epicenter(
+                            x=eq_tuple[0],
+                            y=eq_tuple[2],
+                            ax=axes[1, 0],
+                            size=eq_tuple[4],
+                            alpha=0.7,
+                            color=eq_tuple[3],
+                        )            
           
     # add main eq
-    if gdms_main_eq:
-        _add_epicenter(
-            x=gdms_main_eq[0],
-            y=gdms_main_eq[1],
-            ax=geo_ax,
-            size=main_eq_size,
-            alpha=0.7,
-            color='yellow',
-        )      
-    if gamma_main_eq:
-        _add_epicenter(
-            x=gamma_main_eq[0],
-            y=gamma_main_eq[1],
-            ax=geo_ax,
-            size=main_eq_size,
-            alpha=0.7
-            )
-    if h3dd_main_eq:
-        _add_epicenter(
-            x=h3dd_main_eq[0],
-            y=h3dd_main_eq[1],
-            ax=geo_ax,
-            size=main_eq_size,
-            alpha=0.7,
-            color='darkorange',
-        )
-  
-
+    if len(eq_list) > 0:
+        for eq_tuple in eq_list:
+            _add_epicenter(
+                x=eq_tuple[0],
+                y=eq_tuple[1],
+                ax=geo_ax,
+                size=eq_tuple[4],
+                alpha=0.7,
+                color=eq_tuple[3],
+            )    
+    
+    # add focal mechanism on map
+    if gafocal_file is not None:
+        if isinstance(gafocal_file, Path):
+            df_gafocal, _ = check_format(gafocal_file)
+        elif isinstance(gafocal_file, pd.DataFrame):
+            df_gafocal = gafocal_file
+        else:
+            raise ValueError('Please provide correct format of gafocal file')
+        if temporal:
+            df_gafocal['utctime'] = pd.to_datetime(df_gafocal['time'])
+            df_gafocal['day'] = df_gafocal['utctime'].map(lambda x: x.day)
+            colormap = plt.cm.viridis
+            norm = mcolors.Normalize(
+                vmin=df_gafocal['day'].min(),
+                vmax=df_gafocal['day'].max()
+                )  # Normalize days to range [0, 1]
+            df_gafocal['color'] = df_gafocal['day'].map(lambda x: colormap(norm(x)))
+            add_focal(ax=geo_ax, df=df_gafocal, focal_size_mapping=focal_size_mapping, temporal=temporal)            
+            
+        else:
+            add_focal(ax=geo_ax, df=df_gafocal, focal_size_mapping=focal_size_mapping)
     # geo_ax.autoscale(tight=True)
     geo_ax.set_aspect('auto')
-    geo_ax.legend(
-        handles=manual_elements,  # + legend_elements,
-        loc='upper left',
-        markerscale=2,
-        labelspacing=1.5,
-        borderpad=1,
-        fontsize=10,
-        framealpha=0.6,
-    )
+    if legend_on_map:
+        geo_ax.legend(
+            handles=manual_elements,  # + legend_elements,
+            loc='upper left',
+            markerscale=2,
+            labelspacing=1.5,
+            borderpad=1,
+            fontsize=10,
+            framealpha=0.6,
+        )
     # geo_ax.add_artist(legend)
     xlim = geo_ax.get_xlim()
     ylim = geo_ax.get_ylim()
@@ -1414,21 +1501,21 @@ def plot_events_mapview(
         axes[0, 1].autoscale(tight=True)
         axes[0, 1].set_ylim(ylim)
         # axes[0, 1].set_xlim([0, catalog['depth_km'].max() + 1])
-        axes[0, 1].set_xlim([0, 62])  # gdms
+        axes[0, 1].set_xlim(depth_set)  # gdms
         axes[0, 1].set_xlabel('Depth (km)')
         axes[0, 1].set_ylabel('Latitude')
 
         axes[1, 0].autoscale(tight=True)
         axes[1, 0].set_xlim(xlim)
         # axes[1, 0].set_ylim([0, catalog['depth_km'].max() + 1])
-        axes[1, 0].set_ylim([0, 62])  # gdms
+        axes[1, 0].set_ylim(depth_set)  # gdms
         axes[1, 0].invert_yaxis()
         axes[1, 0].set_ylabel('Depth (km)')
         axes[1, 0].set_xlabel('Longitude')
     else:
         fig.delaxes(axes[1, 0])
         fig.delaxes(axes[0, 1])
-    axes[1, 1].axis('off')
+    fig.delaxes(axes[1, 1])
     axes[0, 0].axis('off')
     plt.tight_layout()
     if savefig and fig_dir is not None:
@@ -1436,12 +1523,12 @@ def plot_events_mapview(
 
 def plot_mapview_temp(
     station: Path,
-    catalog: pd.DataFrame,
+    catalog: pd.DataFrame, 
     other_catalog: pd.DataFrame | None = None,
     catalog_filter_: dict | None = None,
     title='Event distribution',
     eq_list=[],
-    main_eq_size=10,
+    plot_eq_name=False,
     plot_station_name=True,
     plot_event_name=False,
     # station_mask=station_mask,
@@ -1455,7 +1542,8 @@ def plot_mapview_temp(
     plot_profile_line=False,
     start_point=(121.08, 23.65),
     plot_vel=False,
-    vel_df: pd.DataFrame | None = None # we should write a function to check the type
+    vel_df: pd.DataFrame | None = None, # we should write a function to check the type
+    legend_on_map=False
 ):
     """
     catalog should at least contains the lon and lat.
@@ -1604,7 +1692,7 @@ def plot_mapview_temp(
                         x=eq[2],
                         y=eq[1],
                         ax=axes[0, 1],
-                        size=main_eq_size,
+                        size=eq[3],
                         alpha=0.7,
                         color=eq[4],
                     )
@@ -1623,7 +1711,7 @@ def plot_mapview_temp(
                         x=eq[0],
                         y=eq[2],
                         ax=axes[1, 0],
-                        size=main_eq_size,
+                        size=eq[3],
                         alpha=0.7,
                         color=eq[4],
                     )
@@ -1761,14 +1849,18 @@ def plot_mapview_temp(
     # add main eq
     for eq in eq_list:
         _add_epicenter(
-            x=eq[0], y=eq[1], ax=geo_ax, size=main_eq_size, alpha=0.7, color=eq[4]
+            x=eq[0], y=eq[1], ax=geo_ax, size=eq[3], alpha=0.7, color=eq[4]
         )
+        if plot_eq_name:
+            geo_ax.text(
+                x=eq[0]+0.01, y=eq[1]+0.01, s=eq[5], color='k'
+            )
         if plot_profile:
             _add_epicenter(
-                x=eq[2], y=eq[1], ax=axes[0, 1], size=main_eq_size, alpha=0.7, color=eq[4]
+                x=eq[2], y=eq[1], ax=axes[0, 1], size=eq[3], alpha=0.7, color=eq[4]
             )
             _add_epicenter(
-                x=eq[0], y=eq[2], ax=axes[1, 0], size=main_eq_size, alpha=0.7, color=eq[4]
+                x=eq[0], y=eq[2], ax=axes[1, 0], size=eq[3], alpha=0.7, color=eq[4]
             )                
         manual_elements.append(
             Line2D(
@@ -1784,15 +1876,16 @@ def plot_mapview_temp(
         )
     # geo_ax.autoscale(tight=True)
     geo_ax.set_aspect('auto')
-    geo_ax.legend(
-        handles=manual_elements,  # + legend_elements,
-        loc='upper left',
-        markerscale=2,
-        labelspacing=1.5,
-        borderpad=1,
-        fontsize=10,
-        framealpha=0.6,
-    )
+    if legend_on_map:
+        geo_ax.legend(
+            handles=manual_elements,  # + legend_elements,
+            loc='upper left',
+            markerscale=2,
+            labelspacing=1.5,
+            borderpad=1,
+            fontsize=10,
+            framealpha=0.6,
+        )
     # geo_ax.add_artist(legend)
     xlim = geo_ax.get_xlim()
     ylim = geo_ax.get_ylim()
@@ -1867,6 +1960,11 @@ def plot_only_beach(
 
 
 # plot single beachball check
+def _equip_filter_setting(x):
+    return str(x)[1].isalpha()
+def _event_filter_setting(x):
+    return str(x)[0].isdigit()
+
 def plot_std_beach(
     gafocal_txt: Path,
     polarity_dout: Path,
@@ -1875,8 +1973,11 @@ def plot_std_beach(
     name='GAFocal',
     processes=10,
     event_list=[],
+    # equip_filter=_equip_filter_setting,
+    # event_filter=_event_filter_setting,
 ):
     """## plot beachball only"""
+    #TODO: Haven't find a way to prevent pickle function error.
     df_gafocal, df_hout = _preprocess_focal_files(
         gafocal_txt=gafocal_txt, polarity_dout=polarity_dout, hout_file=hout_file
     )
@@ -2537,7 +2638,7 @@ def add_profile_line(
     geo_ax.plot(lons, lats, transform=ccrs.PlateCarree(), **kwargs)
 
 def add_single_profile(events_df, ax: Axes, width: Any, depth_range=(0, 60), temporal=True,
-                       manual_min=None, manual_max=None, **kwargs):
+                       manual_min=None, manual_max=None, show_xlabel=True, **kwargs):
     """
     Plots a seismic profile on a given axis.
     
@@ -2579,8 +2680,9 @@ def add_single_profile(events_df, ax: Axes, width: Any, depth_range=(0, 60), tem
     # ax.tick_params(axis="x", which="both", bottom=True, labelbottom=True)
     ax.set_xlim(0, width)#(-width / 2, width / 2)
     ax.set_ylim(depth_range[0], depth_range[1])
-    ax.set_xlabel("Distance (km)")
-    ax.set_ylabel("Depth (km)")
+    if show_xlabel:
+        ax.set_xlabel("Distance (km)", fontsize=20)
+    ax.set_ylabel("Depth (km)", fontsize=20)
     ax.invert_yaxis()
     # ax.grid()
 
@@ -3174,7 +3276,8 @@ def _add_azi_fix(
                 init_point=(next_lon, next_lat),
                 azimuth=horizontal_movement['azimuth'] + 90,
                 alpha=0.7,
-                c='k'
+                c='k',
+                zorder=10
                 )
         elif profile_shape == 'rectangle':
             add_profile_rectangle(
@@ -3185,9 +3288,10 @@ def _add_azi_fix(
                 init_point=(next_lon, next_lat),
                 azimuth=horizontal_movement['azimuth'] + 90,
                 alpha=0.7,
-                c='k'
+                c='k',
+                zorder=10
             )
-        geo_ax.text(x=text_lon -0.02, y=text_lat, s=f"{letter}-{letter}'")
+        geo_ax.text(x=text_lon -0.02, y=text_lat, s=f"{letter}-{letter}'", zorder=12)
     
     # vertical
     for i, (dis, letter) in enumerate(zip(vertical_movement['steps'], vertical_movement['letters'])):
@@ -3267,7 +3371,34 @@ def _add_azi_free(
         
         geo_ax.text(x=start_point[0] -0.02, y=start_point[1], s=f"{letter}-{letter}'")
 
-def add_focal(
+def add_focal(ax: Axes, df: pd.DataFrame, focal_size_mapping: dict, color=mpl_color('k'), temporal=False, **kwargs):
+    """This is for adding focal on mapview
+    """
+    for i in ['strike', 'dip', 'rake']:
+        df[i] = df[i].map(lambda x: x.split('+')[0])
+    
+    df.loc[:, 'size'] = df['magnitude'].apply(lambda mag: _get_size(mag, focal_size_mapping))
+
+    df.sort_values(by='magnitude', inplace=True)
+
+    for row in df.itertuples(index=False):
+        mt = pmt.MomentTensor(
+            strike=int(row.strike),
+            dip=int(row.dip),
+            rake=int(row.rake),
+        )
+        if temporal:
+            beachball.plot_beachball_mpl(
+                mt, ax, size=row.size, beachball_type='full',
+                position=(row.longitude, row.latitude), linewidth=0.5, color_t=row.color, zorder=6, **kwargs
+                )  
+        else:
+            beachball.plot_beachball_mpl(
+                mt, ax, size=row.size, beachball_type='full',
+                position=(row.longitude, row.latitude), linewidth=0.5, color_t=color, zorder=6, **kwargs
+                )  
+
+def add_focal_profile(
     ax: Axes,
     gafocal_df: pd.DataFrame,
     length: Any,
@@ -3287,9 +3418,9 @@ def add_focal(
         focal=True,
         flex_temporal=flex_temporal
     )    
-    #TODO: Smart way to do this
-    for i in ['strike', 'dip', 'rake']:
-        df[i] = df[i].map(lambda x: x.split('+')[0])
+    #TODO: We do it in check_format
+    # for i in ['strike', 'dip', 'rake']:
+    #     df[i] = df[i].map(lambda x: x.split('+')[0])
     
     df.loc[:, 'size'] = df['magnitude'].apply(lambda mag: _get_size(mag, focal_size_mapping))
 
@@ -3314,13 +3445,14 @@ def proj_epicenter(profile_center, epi_center, azimuth, width, length):
         profile_center[0], profile_center[1],
         epi_center[0], epi_center[1]
         )
-    if (event_dist / 1000) < np.sqrt((width/2)**2 + (length/2)**2): 
-        return 0, 0
     # 計算事件在剖面方向與垂直方向的距離分量
     relative_angle = np.radians(event_az - azimuth)  # 方位角差值
     y = event_dist * np.cos(relative_angle) / 1000  # 剖面方向距離（公里）
     x = event_dist * np.sin(relative_angle) / 1000  # 垂直剖面距離（公里）    
-    return x+width/2, y
+    if (abs(y) <= length / 2 and abs(x) <= width / 2):    
+        return x+width/2, y
+    else:
+        return -2, 0
     
 def profile_verify(
     station: Path,
@@ -3334,7 +3466,6 @@ def profile_verify(
     catalog_filter_: dict | None = None,
     title='Event distribution',
     eq_list=[],
-    main_eq_size=10,
     plot_station_name=True,
     savefig=True,
     fig_dir: Path | None = None,
@@ -3354,10 +3485,13 @@ def profile_verify(
     vel_mode='all',
     vel_cmap='RdYlBu',
     kde_mode=False,
+    kde_min=0.0,
     profile_fix=False,
     profile_init_mode='start',
     profile_shape='line',
-    focal_size_mapping=focal_size_mapping
+    focal_size_mapping=focal_size_mapping,
+    size_mapping=size_mapping,
+    legend_on_map=False
 ):
     """
     catalog should at least contains the lon and lat.
@@ -3411,21 +3545,23 @@ def profile_verify(
         catalog_df=catalog, h3dd_mode=h3dd_mode, catalog_range=catalog_filter_
     )
     # get the size corresponding to magnitude
-    catalog.loc[:, 'size'] = catalog['magnitude'].apply(_get_size)
+    catalog.loc[:, 'size'] = catalog['magnitude'].apply(lambda x: _get_size(x, size_mapping=size_mapping))
 
     # Calculate the KDE
     if kde_mode:
         X, Y, density = calc_kde(catalog)
-        geo_ax.imshow(
-            density,
-            extent=region,
-            origin='lower',
-            alpha=0.7,
-            cmap=plt.cm.gist_earth_r,
-            zorder=5
-            )
-        geo_ax.contour(X, Y, density, levels=10, alpha=0.8, colors='k', zorder=5)        
-
+        # geo_ax.imshow(
+        #     density,
+        #     extent=region,
+        #     origin='lower',
+        #     alpha=0.7,
+        #     cmap=plt.cm.gist_earth_r,
+        #     zorder=5
+        #     )
+        # geo_ax.contour(X, Y, density, levels=10, alpha=0.8, colors='k', zorder=5)        
+        levels = np.linspace(kde_min, density.max(), 10)
+        contour_lines = geo_ax.contourf(X, Y, density, levels=levels, alpha=0.7, cmap="gist_earth_r", zorder=5)
+        geo_ax.clabel(contour_lines, inline=True, fontsize=8, fmt="%.2f")
     # station
     df_station = pd.read_csv(station)
     # print(
@@ -3482,7 +3618,7 @@ def profile_verify(
                 c=color,
                 alpha=0.5,
                 label=f'Day {day} event num: {len(group)}',
-                zorder=3,
+                zorder=12,
             )
             # Add a colorbar to indicate progression
         sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
@@ -3506,7 +3642,7 @@ def profile_verify(
             s=catalog['size'],
             c='k',
             alpha=0.5,
-            zorder=3,
+            zorder=12,
         )         
     
     # profile
@@ -3523,7 +3659,7 @@ def profile_verify(
     # add main eq
     for eq in eq_list:
         _add_epicenter(
-            x=eq[0], y=eq[1], ax=geo_ax, size=main_eq_size, alpha=0.7, color=eq[4]
+            x=eq[0], y=eq[1], ax=geo_ax, size=eq[3], alpha=0.7, color=eq[4], zorder=15
         )
               
         manual_elements.append(
@@ -3540,16 +3676,16 @@ def profile_verify(
         )
     # geo_ax.autoscale(tight=True)
     geo_ax.set_aspect('auto')
-    
-    geo_ax.legend(
-        handles=manual_elements,  # + legend_elements,
-        loc='upper left',
-        markerscale=2,
-        labelspacing=1.5,
-        borderpad=1,
-        fontsize=10,
-        framealpha=0.6,
-    )
+    if legend_on_map:
+        geo_ax.legend(
+            handles=manual_elements,  # + legend_elements,
+            loc='upper left',
+            markerscale=2,
+            labelspacing=1.5,
+            borderpad=1,
+            fontsize=10,
+            framealpha=0.6,
+        )
 
     ###====== geo_ax setting finish ======###
     #TODO:2025/01/20 Finishing the flexible profile!
@@ -3581,9 +3717,10 @@ def profile_verify(
             mode=profile_init_mode,
             init_point=(next_lon, next_lat),
             c='darkorange',
-            lw=3
+            lw=3,
+            zorder=12
         )
-        geo_ax.text(x=next_lon -0.02, y=next_lat, s=f"{letter}-{letter}'", color='darkorange')
+        geo_ax.text(x=next_lon -0.02, y=next_lat, s=f"{letter}-{letter}'", color='darkorange', zorder=12)
         new_lon, new_lat, _ = geod.fwd(next_lon, next_lat, target_movement['azimuth'] + 90, (target_movement['width'] / 2)*1000)
         new_center = (new_lon, new_lat)
         logging.info(f'Center point: {new_center}')
@@ -3657,7 +3794,8 @@ def profile_verify(
                         c='gray',
                         alpha=0.5,
                         width=target_movement['width'],
-                        depth_range=depth_range
+                        depth_range=depth_range,
+                        show_xlabel=False
                         )                
                 add_single_profile(
                     profile_events,
@@ -3667,7 +3805,8 @@ def profile_verify(
                     temporal=False,
                     c='k',
                     width=target_movement['width'],
-                    depth_range=depth_range
+                    depth_range=depth_range,
+                    show_xlabel=False
                     )    
                 ax.tick_params(labelbottom=False)
                 for eq in eq_list:
@@ -3679,7 +3818,7 @@ def profile_verify(
                         length=target_movement['length']
                     )
                     _add_epicenter(
-                        x=x, y=eq[2], ax=ax, size=main_eq_size, alpha=0.7, color=eq[4]
+                        x=x, y=eq[2], ax=ax, size=eq[3], alpha=0.7, color=eq[4]
                     )
         # Focal mechanism axes
         if gafocal_df is not None:
@@ -3705,7 +3844,7 @@ def profile_verify(
                 width=target_movement['width'],
                 depth_range=depth_range
                 )
-            add_focal(
+            add_focal_profile(
                 ax=ax,
                 gafocal_df=gafocal_df,
                 length=target_movement['length'],
@@ -3723,19 +3862,20 @@ def profile_verify(
                     length=target_movement['length'],
                 )
                 _add_epicenter(
-                    x=x, y=eq[2], ax=ax, size=main_eq_size, alpha=0.7, color=eq[4]
+                    x=x, y=eq[2], ax=ax, size=eq[3], alpha=0.7, color=eq[4]
                 )            
-            ax.set_xlim(0, target_movement['width'])#(-width / 2, width / 2)
-            ax.set_ylim(depth_range[0], depth_range[1])
-            ax.set_xlabel("Distance (km)")
-            ax.set_ylabel("Depth (km)")
-            ax.invert_yaxis()
+            # ax.set_xlim(0, target_movement['width'])#(-width / 2, width / 2)
+            # ax.set_ylim(depth_range[0], depth_range[1])
+            # ax.set_xlabel("Distance (km)", fontsize=20)
+            # ax.set_ylabel("Depth (km)", fontsize=20)
+            # ax.invert_yaxis()
             cax.set_axis_off()                 
     
     if savefig and fig_dir is not None:
         
         plt.tight_layout()
         plt.savefig(fig_dir / f'{savename}.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
 def plot_temporal_profile(
     time_period: tuple,
@@ -3750,6 +3890,7 @@ def plot_temporal_profile(
     depth_range=(0, 60),
     focal_events: pd.DataFrame | Path | None = None,
     background_events: pd.DataFrame | Path | None = None,
+    background_color='r',
     catalog_filter_: dict | None = None, # same as map_region
     eq_list=[],
     vel_txt: Path | None = None,
@@ -3758,7 +3899,9 @@ def plot_temporal_profile(
     vel_cmap='RdYlBu',
     event_cmap=plt.cm.viridis,
     focal_size_mapping=focal_size_mapping,
-    magnitude_mapping=_get_size
+    magnitude_mapping=size_mapping,
+    legend_on_map=True,
+    use_color_bar=True
 ):
     # plot setting
     fig = plt.figure(figsize=(45, 18))
@@ -3773,7 +3916,7 @@ def plot_temporal_profile(
         catalog = catalog[
             (catalog['datetime'] >= pd.Timestamp(time_period[0]))
             & (catalog['datetime'] <= pd.Timestamp(time_period[1]))
-        ]
+        ].copy()
         min_time = pd.Timestamp(time_period[0])
         if isinstance(event_cmap_interval, float):
             catalog.loc[:, 'time_group'] = (
@@ -3836,7 +3979,9 @@ def plot_temporal_profile(
         catalog_df=catalog, h3dd_mode=False, catalog_range=catalog_filter_
     )
     # get the size corresponding to magnitude
-    catalog.loc[:, 'size'] = catalog['magnitude'].apply(magnitude_mapping)
+    catalog.loc[:, 'size'] = catalog['magnitude'].map(
+        lambda x: _get_size(x, magnitude_mapping)
+    )
 
     # station
     if isinstance(station, pd.DataFrame):
@@ -3884,19 +4029,20 @@ def plot_temporal_profile(
     )      
 
     # plot the color in diff time period
-    unique_times = sorted(catalog['time_group'].unique())
-    time_mapping = {t: i for i, t in enumerate(unique_times)}
-    norm = mcolors.Normalize(vmin=min(time_mapping.values()), vmax=max(time_mapping.values()))   
+    # unique_times = sorted(catalog['time_group'].unique())
+    # time_mapping = {t: i for i, t in enumerate(unique_times)}
+    norm = mcolors.Normalize(vmin=catalog['time_group'].min(), vmax=catalog['time_group'].max())   
     colormap = event_cmap
+    catalog['color'] = catalog['time_group'].map(lambda x: colormap(norm(x)))
     for group_id, group in catalog.groupby('time_group'):
         min_time = pd.Timestamp(time_period[0])
-        color = colormap(norm(time_mapping[group_id]))
+        color = colormap(norm(group_id))
         # print(f'color: {color}')
         geo_ax.scatter(
             group['longitude'],
             group['latitude'],
             s=group['size'],
-            color=color,  # Ensure proper coloring
+            color=group['color'],  # Ensure proper coloring
             alpha=0.5,
             zorder=3
         )
@@ -3912,22 +4058,41 @@ def plot_temporal_profile(
                 markeredgecolor='k',
             )
         ) 
-
+    if background_events is not None:
+        if isinstance(background_events, Path):
+            df_background_events = pd.read_csv(background_events)
+        elif isinstance(background_events, pd.DataFrame):
+            df_background_events = background_events
+        else:
+            raise ValueError(f'{type(background_events)} not supported')
+        
+        df_background_events.loc[:, 'size'] = df_background_events['magnitude'].map(
+            lambda x: _get_size(x, magnitude_mapping)
+        )        
+        geo_ax.scatter(
+            df_background_events['longitude'],
+            df_background_events['latitude'],
+            s=df_background_events['size'],
+            color=background_color,  # Ensure proper coloring
+            alpha=0.5,
+            zorder=2
+        )         
     # Add colorbar to indicate progression
-    sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
-    sm.set_array([])
+    if use_color_bar:
+        sm = plt.cm.ScalarMappable(cmap=colormap, norm=norm)
+        sm.set_array([])
 
-    cbar_ax = inset_axes(
-        geo_ax,  # Parent axis (geo_ax)
-        width="3%",  # Width of the colorbar relative to geo_ax
-        height="50%",  # Height of the colorbar relative to geo_ax
-        loc="lower right",  # Location inside the geo_ax
-        bbox_to_anchor=(0.05, 0.05, 0.85, 0.9),  # Adjust position within geo_ax
-        bbox_transform=geo_ax.transAxes,  # Use geo_ax coordinates
-        borderpad=0,  # Padding around the inset
-    )
-    cbar = plt.colorbar(sm, cax=cbar_ax, orientation='vertical')
-    cbar.set_label(f"Interval {event_cmap_interval} seconds")
+        cbar_ax = inset_axes(
+            geo_ax,  # Parent axis (geo_ax)
+            width="3%",  # Width of the colorbar relative to geo_ax
+            height="50%",  # Height of the colorbar relative to geo_ax
+            loc="lower right",  # Location inside the geo_ax
+            bbox_to_anchor=(0.05, 0.05, 0.85, 0.9),  # Adjust position within geo_ax
+            bbox_transform=geo_ax.transAxes,  # Use geo_ax coordinates
+            borderpad=0,  # Padding around the inset
+        )
+        cbar = plt.colorbar(sm, cax=cbar_ax, orientation='vertical')
+        cbar.set_label(f"Interval {event_cmap_interval} seconds")
     
     ## plot profile
     if profile_settings:
@@ -3937,7 +4102,7 @@ def plot_temporal_profile(
     if len(eq_list) > 0:
         for eq in eq_list:
             _add_epicenter(
-                x=eq[0], y=eq[1], ax=geo_ax, size=20, alpha=0.7, color=eq[4]
+                x=eq[0], y=eq[1], ax=geo_ax, size=eq[3], alpha=0.7, color=eq[4]
             )
                 
             manual_elements.append(
@@ -3953,16 +4118,16 @@ def plot_temporal_profile(
                 )
             )
     geo_ax.set_aspect('auto')
-    
-    geo_ax.legend(
-        handles=manual_elements,  # + legend_elements,
-        loc='upper left',
-        markerscale=2,
-        labelspacing=1.5,
-        borderpad=1,
-        fontsize=10,
-        framealpha=0.6,
-    )
+    if legend_on_map:
+        geo_ax.legend(
+            handles=manual_elements,  # + legend_elements,
+            loc='upper left',
+            markerscale=2,
+            labelspacing=1.5,
+            borderpad=1,
+            fontsize=10,
+            framealpha=0.6,
+        )
 
     # plotting gridspec profile
     profile_nums = len(profile_settings)
@@ -4062,14 +4227,14 @@ def plot_temporal_profile(
                 other_events,
                 ax2,
                 temporal=False,
-                color='gray',
+                color=background_color,
                 alpha=0.5,
                 width=width,
                 depth_range=depth_range
                 )
         profile_events.sort_values(by='group', ascending=False, inplace=True)
         for group_id, group in profile_events.groupby('group'):
-            color = colormap(norm(time_mapping[group_id]))                    
+            color = colormap(norm(group_id))                    
             add_single_profile(
                 group,
                 ax2,
@@ -4079,9 +4244,10 @@ def plot_temporal_profile(
                 depth_range=depth_range
                 )
             if focal_events is not None:
+                # df_focal['color'] = df_focal['time_group'].map(lambda x: colormap(norm(x)))
                 df_part = df_focal[df_focal['time_group'] == group_id]
                 if not df_part.empty:
-                    add_focal(
+                    add_focal_profile(
                         ax=ax2,
                         gafocal_df=df_part,
                         length=length,
@@ -4103,7 +4269,7 @@ def plot_temporal_profile(
                 )
                 if x != 0:
                     _add_epicenter(
-                        x=x, y=eq[2], ax=ax2, size=10, alpha=0.7, color=eq[4]
+                        x=x, y=eq[2], ax=ax2, size=eq[3], alpha=0.7, color=eq[4]
                     )            
         ax2.set_xlim(0, width)#(-width / 2, width / 2)
         ax2.set_ylim(depth_range[0], depth_range[1])
@@ -4116,5 +4282,5 @@ def plot_temporal_profile(
     if fig_name and fig_dir is not None:
         
         plt.tight_layout()
-        plt.savefig(fig_dir / f'{fig_name}.png', dpi=300, bbox_inches='tight')                                                                                    
+        plt.savefig(fig_dir / f'{fig_name}.png', dpi=300)                                                                                    
            

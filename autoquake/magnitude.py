@@ -119,9 +119,13 @@ class Magnitude:
         self.sac_parent_dir = sac_parent_dir
         self.pz_path = pz_dir
         self.output_dir = self._check_output(output_dir)
-        self.events = self.output_dir / 'mag_events.csv'
-        self.picks = self.output_dir / 'mag_picks.csv'
 
+    def get_events(self) -> Path:
+        return self.events_path
+
+    def get_picks(self) -> Path:
+        return self.picks_path
+    
     def _check_output(self, output):
         if output is not None:
             return output
@@ -579,6 +583,9 @@ class Magnitude:
                 all_picks.append(picks)
 
         df_event_result = pd.concat(all_events, ignore_index=True)
-        df_event_result.to_csv(self.output_dir / 'mag_events.csv', index=False)
+        self.events_path = self.output_dir / 'mag_events.csv'
+        df_event_result.to_csv(self.events_path, index=False)
+
         df_picks_result = pd.concat(all_picks, ignore_index=True)
-        df_picks_result.to_csv(self.output_dir / 'mag_picks.csv', index=False)
+        self.picks_path = self.output_dir / 'mag_picks.csv'
+        df_picks_result.to_csv(self.picks_path, index=False)

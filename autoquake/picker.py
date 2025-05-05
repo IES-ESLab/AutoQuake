@@ -42,17 +42,18 @@ class PhaseNet:
         data_parent_dir: Path,
         start_ymd: str,
         end_ymd: str,
+        pz_dir: Path | None = None,
         data_list: str | None = None,
         result_path: Path | None = None,
         hdf5_file: str | None = None,
         prefix='',
-        format='h5',  # TODO: what format scenarios is performed?
-        dataset='das',
-        model='phasenet_das',
+        format='SAC',  # h5 for DAS.
+        dataset='das', # This is the accompanning attributes if format is h5.
+        model='phasenet',
         resume='',
         backbone='unet',
         phases=['P', 'S'],
-        device='cuda',
+        device='cpu',
         workers=0,
         batch_size=1,
         use_deterministic_algorithms=True,
@@ -64,7 +65,7 @@ class PhaseNet:
         add_polarity=False,
         add_event=True,
         sampling_rate=100.0,
-        highpass_filter: float | None = None,
+        highpass_filter=0.0,
         response_path: str | None = None,
         response_xml: str | None = None,
         subdir_level=0,
@@ -86,17 +87,18 @@ class PhaseNet:
             - data_parent_dir (Path): Path to the parent directory of the data.
             - start_ymd (str): Start date in YYYYMMDD format.
             - end_ymd (str): End date in YYYYMMDD format.
+            - pz_dir (Path | None, optional): Path to the PZ directory, integrated with newly phasenet. If None, no PZ directory will be used. Defaults to None.
             - data_list (str | None, optional): Path to the data list file. If None, the data list will be generated based on the start and end dates. Defaults to None.
             - result_path (Path | None, optional): Path to the directory where the results will be saved. If None, the results will be saved in the parent directory of current directory. Defaults to None.
             - hdf5_file (str | None, optional): Path of hdf5 file for training. If None, the hdf5 file will be generated based on the data list. Defaults to None.
             - prefix (str, optional): Prefix for the file name. Defaults to ''.
-            - format (str, optional): Format of the data. Defaults to 'h5'.
-            - dataset (str, optional): Dataset to use. Defaults to 'das'.
-            - model (str, optional): Model to use. Defaults to 'phasenet_das'.
+            - format (str, optional): Format of the data, select h5 or SAC. Defaults to 'SAC'.
+            - dataset (str, optional): This is for if format is h5, skipping this if using seismic trace. Defaults to 'das'.
+            - model (str, optional): Model to use, EQnet provides phasenet, phasenet_plus, phasenet_das. Defaults to 'phasenet'.
             - resume (str, optional): Path to the checkpoint file. Defaults to ''.
             - backbone (str, optional): Backbone to use. Defaults to 'unet'.
             - phases (list, optional): Phases to detect. Defaults to ['P', 'S'].
-            - device (str, optional): Device to use. Defaults to 'cuda'.
+            - device (str, optional): Device to use, if you have GPU please type 'cuda'. Defaults to 'cpu'.
             - workers (int, optional): Number of workers to use. Defaults to 0.
             - batch_size (int, optional): Batch size to use. Defaults to 1.
             - use_deterministic_algorithms (bool, optional): Whether to use deterministic algorithms. Defaults to True.
@@ -108,7 +110,7 @@ class PhaseNet:
             - add_polarity (bool, optional): Whether to add polarity. Defaults to False.
             - add_event (bool, optional): Whether to use event information. Defaults to True.
             - sampling_rate (float, optional): Sampling rate. Defaults to 100.0.
-            - highpass_filter (float | None, optional): Highpass filter. If None, no highpass filter will be used. Defaults to None (give 0.0 if use phasenet_das).
+            - highpass_filter (float): Highpass filter. If 0.0, no highpass filter will be used. Defaults to 0.0.
             - response_path (str | None, optional): Path to the response file. If None, no response will be used. Defaults to None.
             - subdir_level (int, optional): Number of subdirectories to use. Defaults to 0.
             - cut_patch (bool, optional): Whether to cut patch. Defaults to False.
@@ -146,6 +148,7 @@ class PhaseNet:
         self.add_event = add_event
         self.sampling_rate = sampling_rate
         self.highpass_filter = highpass_filter
+        self.pz_dir = pz_dir
         self.response_path = response_path
         self.response_xml = response_xml
         self.subdir_level = subdir_level
@@ -234,6 +237,7 @@ class PhaseNet:
                 add_event=self.add_event,
                 sampling_rate=self.sampling_rate,
                 highpass_filter=self.highpass_filter,
+                pz_dir=self.pz_dir,
                 response_path=self.response_path,
                 response_xml=self.response_xml,
                 subdir_level=self.subdir_level,
@@ -746,6 +750,7 @@ class PhaseNet:
                 training=False,
                 sampling_rate=args.sampling_rate,
                 highpass_filter=args.highpass_filter,
+                pz_dir=args.pz_dir,
                 response_path=args.response_path,
                 response_xml=args.response_xml,
                 cut_patch=args.cut_patch,

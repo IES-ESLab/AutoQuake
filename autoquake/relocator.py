@@ -75,10 +75,10 @@ class H3DD:
         return self.reorder_event#self.gamma_event.parent / 'gamma_reorder_event.csv'
 
     def get_dout(self) -> Path:
-        return self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+        return self.dout
     
     def get_hout(self) -> Path:
-        return self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+        return self.hout
     
     def _station_h3dd_format(self, station: Path):
         """
@@ -316,6 +316,9 @@ class H3DD:
 
             if result.returncode != 0:
                 print('Error occurred during h3dd execution.')
+
+        self.dout = self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+        self.hout = self.h3dd_dir / f'{self.event_name}.dat_ch.hout'
 
         os.system(f'cp {self.get_hout()} {self.result_path}')
         os.system(f'cp {self.get_dout()} {self.result_path}')

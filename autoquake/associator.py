@@ -22,7 +22,6 @@ class GaMMA:
         station: Path,
         pickings: Path,
         result_path=None,
-        picking_name_extract=lambda x: x.split('.')[1],
         center=None,
         xlim_degree: list | None = None,
         x_interval=3.0,
@@ -55,7 +54,6 @@ class GaMMA:
             - station (Path): Path to the station file.
             - pickings (Path): Path to the picking file.
             - result_path (Path, optional): Path to the result directory. Defaults to None.
-            - picking_name_extract (Callable, optional): Function to extract the event name from the picking file. Defaults to lambda x: x.split('.')[1].
             - center (tuple, optional): Center of the study area. Defaults to None.
             - xlim_degree (tuple, optional): Longitude range of the study area. Defaults to None.
             - x_interval (float, optional): Longitude interval of the study area. Defaults to 3.0.
@@ -87,7 +85,6 @@ class GaMMA:
         self.df_station = self._check_station(station)
         self.use_amplitude = use_amplitude
         self.pickings = pickings
-        self.picking_name_extract = picking_name_extract
         self.result_path = self._result_dir(result_path)
         self.center = center
         self.xlim_degree = xlim_degree
@@ -105,15 +102,25 @@ class GaMMA:
         self.dbscan_eps = dbscan_eps
         self.ncpu = ncpu
         self.ins_type = ins_type
-        self.min_picks_per_eq = min_picks_per_eq
+        self.min_picks_per_eq = min_p_picks_per_eq + min_s_picks_per_eq
         self.min_p_picks_per_eq = min_p_picks_per_eq
         self.min_s_picks_per_eq = min_s_picks_per_eq
         self.covariance_prior = covariance_prior
         self.max_sigma11 = max_sigma11
         self.max_sigma22 = max_sigma22
         self.max_sigma12 = max_sigma12
-        self.picks = self.result_path / 'gamma_picks.csv'
-        self.events = self.result_path / 'gamma_events.csv'
+
+    def get_picks(self) -> Path:
+        """
+        Get the Path of the gamma_picks.csv
+        """
+        return self.result_path / "gamma_picks.csv"
+    
+    def get_events(self) -> Path:
+        """
+        Get the Path of the gamma_events.csv
+        """
+        return self.result_path / "gamma_events.csv"
 
     def _check_station(self, station: Path) -> pd.DataFrame:
         df = pd.read_csv(station)
@@ -132,17 +139,16 @@ class GaMMA:
         if use_amplitude == True.
         """
         df = pd.read_csv(self.pickings)
-        if self.picking_name_extract is not None:
-            df['station_id'] = df['station_id'].map(self.picking_name_extract)
 
-        if self.use_amplitude:
-            df[df['amp'] != -1]
+        # if self.use_amplitude:
+        #     df = df[df['phase_amplitude'] != -1]
         df.rename(
             columns={
                 'station_id': 'id',
                 'phase_time': 'timestamp',
                 'phase_type': 'type',
                 'phase_score': 'prob',
+                'phase_amplitude': 'amp'
             },
             inplace=True,
         )
@@ -341,52 +347,3 @@ class GaMMA:
             index=False,
             date_format='%Y-%m-%dT%H:%M:%S.%f',
         )
-
-    @staticmethod
-    def classify_event(row, picks):
-        event_index = row['event_index']
-        filtered_picks = picks[picks['event_index'] == event_index]
-
-        # Filter DAS and seismic picks
-        das_picks = filtered_picks[
-            filtered_picks['station_id'].map(lambda x: x[1].isdigit())
-        ]
-        seis_picks = filtered_picks[
-            filtered_picks['station_id'].map(lambda x: x[1].isalpha())
-        ]
-
-        # Count phase types
-        das_counts = das_picks['phase_type'].value_counts()
-        seis_counts = seis_picks['phase_type'].value_counts()
-
-        # Extract counts
-        das_count_p = das_counts.get('P', 0)
-        das_count_s = das_counts.get('S', 0)
-        seis_count_p = seis_counts.get('P', 0)
-        seis_count_s = seis_counts.get('S', 0)
-
-        # Classify event
-        if seis_count_p >= 6 and seis_count_s >= 2:
-            event_type = 1 if das_count_p >= 15 else 2
-        elif das_count_p >= 15:
-            event_type = 3
-        else:
-            event_type = 4
-
-        # Add results to row
-        row['seis_p_picks'] = seis_count_p
-        row['seis_s_picks'] = seis_count_s
-        row['das_p_picks'] = das_count_p
-        row['das_s_picks'] = das_count_s
-        row['event_type'] = event_type
-        return row
-
-    # Apply function to each row in df_events
-    @staticmethod
-    def get_detailed_picks(gamma_events: Path, gamma_picks: Path):
-        df_events = pd.read_csv(gamma_events)
-        df_picks = pd.read_csv(gamma_picks)
-        df_events = df_events.apply(
-            lambda row: GaMMA.classify_event(row, df_picks), axis=1
-        )
-        return df_events

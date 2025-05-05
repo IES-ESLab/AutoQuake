@@ -114,13 +114,13 @@ class GaMMA:
         """
         Get the Path of the gamma_picks.csv
         """
-        return self.result_path / "gamma_picks.csv"
+        return self.picks
     
     def get_events(self) -> Path:
         """
         Get the Path of the gamma_events.csv
         """
-        return self.result_path / "gamma_events.csv"
+        return self.picks
 
     def _check_station(self, station: Path) -> pd.DataFrame:
         df = pd.read_csv(station)
@@ -316,8 +316,10 @@ class GaMMA:
             axis=1,
         )
         events['depth_km'] = events['z(km)']
+
+        self.events = self.result_path / 'gamma_events.csv'
         events.to_csv(
-            self.result_path / 'gamma_events.csv',
+            self.events,
             index=False,
             float_format='%.3f',
             date_format='%Y-%m-%dT%H:%M:%S.%f',
@@ -342,8 +344,10 @@ class GaMMA:
             },
             inplace=True,
         )
+
+        self.picks = self.result_path / 'gamma_picks.csv'
         picks.to_csv(
-            self.result_path / 'gamma_picks.csv',
+            self.picks,
             index=False,
             date_format='%Y-%m-%dT%H:%M:%S.%f',
         )

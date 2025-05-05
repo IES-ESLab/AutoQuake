@@ -8,29 +8,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
-def get_index_table(gamma_reorder_event: Path) -> pd.DataFrame:
-    df = pd.read_csv(gamma_reorder_event)
-    if 'h3dd_event_index' in df.columns:
-        df_table = df.loc[:, ['event_index', 'h3dd_event_index']]
-    else:
-        df['h3dd_event_index'] = df.index
-        df_table = df.loc[:, ['event_index', 'h3dd_event_index']]
-    assert isinstance(df_table, pd.DataFrame)
-    return df_table
-
-
-def index_h3dd2gamma(df_table: pd.DataFrame, h3dd_index: int):
-    if all(col in df_table.columns for col in ['event_index', 'h3dd_event_index']):
-        return df_table[df_table['h3dd_event_index'] == h3dd_index]['event_index'].iloc[
-            0
-        ]  # noqa: E501
-    else:
-        raise ValueError(
-            "DataFrame must contain 'event_index' and 'h3dd_event_index' columns."
-        )
-
-
 class H3DD:
     def __init__(
         self,
@@ -38,7 +15,8 @@ class H3DD:
         gamma_picks: Path,
         station: Path,
         model_3d: Path,
-        event_name='AQ_event',
+        result_path: Path,
+        event_name='Relo',
         weights=[1.0, 1.0, 0.1],
         priori_weight=[1.0, 0.75, 0.5, 0.25, 0.0],
         cut_off_distance_for_dd=3.0,
@@ -48,8 +26,7 @@ class H3DD:
         max_iter=5,
         constrain_factor=0.0,
         joint_inv_with_single_event_method=1,
-        consider_elevation=0,
-        save_reorder=False,
+        consider_elevation=0
     ):
         """## Using 3D model for hypoDD.
 
@@ -80,6 +57,7 @@ class H3DD:
         self.gamma_picks = gamma_picks
         self.h3dd_station = self._station_h3dd_format(station)
         self.model_3d = self._check_model_3d(model_3d)
+        self.result_path = result_path
         self.event_name = event_name
         self.weights = weights
         self.priori_weight = priori_weight
@@ -91,11 +69,17 @@ class H3DD:
         self.constrain_factor = constrain_factor
         self.joint_inv_with_single_event_method = joint_inv_with_single_event_method
         self.consider_elevation = consider_elevation
-        self.save_reorder = save_reorder
-        self.reorder_event = self.gamma_event.parent / 'gamma_reorder_event.csv'
-        self.dout = self.h3dd_dir / f'{event_name}.dat_ch.dout'
-        self.hout = self.h3dd_dir / f'{event_name}.dat_ch.hout'
 
+
+    def get_df_reorder_event(self) -> pd.DataFrame:
+        return self.reorder_event#self.gamma_event.parent / 'gamma_reorder_event.csv'
+
+    def get_dout(self) -> Path:
+        return self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+    
+    def get_hout(self) -> Path:
+        return self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+    
     def _station_h3dd_format(self, station: Path):
         """
         Convert station.csv to h3dd format.
@@ -156,17 +140,18 @@ class H3DD:
             f.write('*13. consider elevation or not (1=yes 0=no)\n')
             f.write(f"{' '*4}{self.consider_elevation}\n")
 
-    def _gamma_reorder(self, gamma_reorder_event=None) -> pd.DataFrame:
+    def _gamma_reorder(self) -> pd.DataFrame:
         df = pd.read_csv(self.gamma_event)
         df['time'] = pd.to_datetime(df['time'])
         df_sort = df.sort_values(by='time')
         df_sort = df_sort.reset_index(drop=True)
         df_sort['h3dd_event_index'] = df_sort.index
 
-        if gamma_reorder_event is None:
-            gamma_reorder_event = self.gamma_event.parent / 'gamma_reorder_event.csv'
-        if self.save_reorder:
-            df_sort.to_csv(gamma_reorder_event, index=False)
+        self.reorder_event = df_sort
+        # if gamma_reorder_event is None:
+        #     gamma_reorder_event = self.gamma_event.parent / 'gamma_reorder_event.csv'
+        # if self.save_reorder:
+        #     df_sort.to_csv(gamma_reorder_event, index=False)
         return df_sort
 
     def _gamma_preprocess(
@@ -289,7 +274,6 @@ class H3DD:
                 output_file=output_file, df_event=df_event, df_picks=df_picks
             )
             self.file_num = 1
-
     def run_h3dd(self):
         """
         Running 3D HypoDD.
@@ -333,8 +317,8 @@ class H3DD:
             if result.returncode != 0:
                 print('Error occurred during h3dd execution.')
 
-        os.system(f'cp {self.hout} {self.gamma_event.parent}')
-        os.system(f'cp {self.dout} {self.gamma_event.parent}')
+        os.system(f'cp {self.get_hout()} {self.result_path}')
+        os.system(f'cp {self.get_dout()} {self.result_path}')
 
     def just_run(self, dat_ch: Path):
         """
@@ -370,108 +354,3 @@ class H3DD:
                         with open(fname) as infile:
                             # NOTE: Using shutil.copyfileobj() for large file.
                             outfile.write(infile.read())
-
-    @staticmethod
-    def pol_mag_to_dout(
-        ori_dout: Path,
-        gamma_reorder_event: Path,
-        polarity_picks: Path,
-        magnitude_events: Path,
-        magnitude_picks: Path,
-        output_path: Path,
-    ):
-        """
-        Combining polarity and magnitude information into dout.
-        """
-        df_table = get_index_table(gamma_reorder_event=gamma_reorder_event)
-
-        df_pol = pd.read_csv(polarity_picks)
-        df_mag_event = pd.read_csv(magnitude_events)
-        df_mag_pick = pd.read_csv(magnitude_picks)
-        output_dout = output_path / f'{ori_dout.name}'
-        with open(output_dout, 'w') as fo:
-            with open(ori_dout) as r:
-                lines = r.readlines()
-            h3dd_event_index = -1
-            for line in lines:
-                if line.strip().split()[-1] == '3DD':
-                    h3dd_event_index += 1
-                    event_mag = round(
-                        df_mag_event[
-                            df_mag_event['h3dd_event_index'] == h3dd_event_index
-                        ]['magnitude'].iloc[0],
-                        2,
-                    )
-
-                    fo.write(f'{line[:40]}{event_mag:4.2f}{line[44:]}')
-                elif line[35:39] == '1.00':
-                    station = line[:5].strip()
-                    sta_mag = round(
-                        df_mag_pick[
-                            (df_mag_pick['h3dd_event_index'] == h3dd_event_index)
-                            & (df_mag_pick['station_id'] == station)
-                        ]['magnitude'].iloc[0],
-                        2,
-                    )
-                    polarity = df_pol[
-                        (
-                            df_pol['event_index']
-                            == index_h3dd2gamma(df_table, h3dd_event_index)
-                        )
-                        & (df_pol['station_id'] == station)
-                    ]['polarity'].iloc[0]
-                    if polarity == 'U':
-                        polarity = '+'
-                    elif polarity == 'D':
-                        polarity = '-'
-                    else:
-                        polarity = ' '
-
-                    fo.write(
-                        f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 {sta_mag:4.2f} 0   0.0\n'
-                    )
-        return ori_dout.name
-
-    @staticmethod
-    def pol_to_dout(
-        ori_dout: Path,
-        gamma_reorder_event: Path,
-        polarity_picks: Path,
-        output_path: Path,
-    ):
-        """
-        Combining polarity and magnitude information into dout.
-        """
-        df_table = get_index_table(gamma_reorder_event=gamma_reorder_event)
-
-        df_pol = pd.read_csv(polarity_picks)
-        output_dout = output_path / f'{ori_dout.name}'
-        with open(output_dout, 'w') as fo:
-            with open(ori_dout) as r:
-                lines = r.readlines()
-            h3dd_event_index = -1
-            for line in lines:
-                if line.strip().split()[-1] == '3DD':
-                    h3dd_event_index += 1
-                    fo.write(line)
-                elif line[35:39] == '1.00':
-                    station = line[:5].strip()
-                    polarity = df_pol[
-                        (
-                            df_pol['event_index']
-                            == index_h3dd2gamma(df_table, h3dd_event_index)
-                        )
-                        & (df_pol['station_id'] == station)
-                    ]['polarity'].iloc[0]
-                    if polarity == 'U':
-                        polarity = '+'
-                    elif polarity == 'D':
-                        polarity = '-'
-                    else:
-                        polarity = ' '
-
-                    fo.write(
-                        f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 0.00 0   0.0\n'
-                    )
-
-        return ori_dout.name

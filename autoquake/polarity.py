@@ -6,6 +6,7 @@ import os
 import warnings
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import h5py
 import numpy as np
@@ -18,11 +19,6 @@ diting_model = (
 )
 
 warnings.filterwarnings('ignore')
-
-
-def default_type_judge(x: str):
-    return True if x[1].isalpha() else False
-
 
 def formatting(num):
     """Format number to have leading zero if needed."""
@@ -69,13 +65,13 @@ class DitingMotion:
     def __init__(
         self,
         gamma_picks: Path,
+        type_judge: Callable,
         model_path=diting_model,
         output_dir: Path | None = None,
         sac_parent_dir=None,
         h5_parent_dir=None,
         interval=300,
         sampling_rate=100.0,
-        type_judge=None,
     ):
         """## Using DitingMotion to predict the polarity of the P-wave
 
@@ -96,16 +92,12 @@ class DitingMotion:
         self.h5_parent_dir = h5_parent_dir
         self.interval = interval
         self.sampling_rate = sampling_rate
-        self.type_judge = self._check_type_judge(type_judge)
+        self.type_judge = type_judge
         self.indices = self._get_indices()
         # self._set_thread_options()
-        self.picks = self.output_dir / 'polarity_picks.csv'
-
-    def _check_type_judge(self, type_judge):
-        if type_judge is None:
-            return default_type_judge
-        else:
-            return type_judge
+    
+    def get_picks(self):
+        return self.picks
 
     def _check_output(self, output):
         if output is not None:
@@ -341,7 +333,7 @@ class DitingMotion:
         return processed_rows
 
     def run_parallel_predict(self, processes=3):
-        output_csv = self.output_dir / 'polarity_picks.csv'
+        self.picks = self.output_dir / 'polarity_picks.csv'
         # if output_csv.exists():
         #     print(f'remove {output_csv}')
         #     output_csv.unlink()
@@ -357,4 +349,4 @@ class DitingMotion:
         all_picks = [item for sublist in results for item in sublist]
         if all_picks:
             df__result = pd.DataFrame(all_picks)
-            df__result.to_csv(output_csv, index=False)
+            df__result.to_csv(self.picks, index=False)

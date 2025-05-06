@@ -317,11 +317,15 @@ class H3DD:
             if result.returncode != 0:
                 print('Error occurred during h3dd execution.')
 
-        self.dout = self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
-        self.hout = self.h3dd_dir / f'{self.event_name}.dat_ch.hout'
+        dout = self.h3dd_dir / f'{self.event_name}.dat_ch.dout'
+        hout = self.h3dd_dir / f'{self.event_name}.dat_ch.hout'
 
-        os.system(f'cp {self.get_hout()} {self.result_path}')
-        os.system(f'cp {self.get_dout()} {self.result_path}')
+        os.system(f'cp {dout} {self.result_path}')
+        os.system(f'cp {hout} {self.result_path}')
+        
+        # Make sure that getter use the output from result path.
+        self.dout = self.result_path / f'{self.event_name}.dat_ch.dout'
+        self.hout = self.result_path / f'{self.event_name}.dat_ch.hout'        
 
     def just_run(self, dat_ch: Path):
         """

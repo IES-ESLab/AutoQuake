@@ -10,6 +10,8 @@
 /geo_map
 /autoquake/visualization/geo_map
 /script_to_tidy_up
+/Optimization
+/Case
 # output and some text
 
 gmt.history
@@ -20,6 +22,7 @@ gmt.history
 *.dat_ch
 *.P24
 *.ps
+*.gif
 *gamma_config.txt
 
 
@@ -44,10 +47,12 @@ plot.ipynb
 
 testset*
 # H3DD
-/H3DD/*.dat_ch
-/H3DD/*out
-/H3DD/h3dd.inp
-/H3DD/station.all.select
+/H3DD
+!/H3DD/h3dd
+# /H3DD/*.dat_ch
+# /H3DD/*out
+# /H3DD/h3dd.inp
+# /H3DD/station.all.select
 
 # GAfocal
 /GAfocal/results.txt

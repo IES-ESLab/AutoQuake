@@ -13,7 +13,7 @@ import pandas as pd
 from obspy import Stream, UTCDateTime, read
 from obspy.io.sac.sacpz import attach_paz
 
-from .utils import dmm_trans
+from autoquake.utils import process_h3dd
 
 pre_filt = (0.1, 0.5, 30, 35)
 
@@ -23,61 +23,6 @@ wa_simulate = {
     'sensitivity': 1.0,
     'gain': 2800.0,
 }
-
-
-def check_time(year: int, month: int, day: int, hour: int, min: int, sec: float):
-    """
-    Adjust time by handling overflow of minutes, hours, and days.
-
-    Args:
-        year (int): Year component of the time.
-        month (int): Month component of the time (1-12).
-        day (int): Day component of the time (depends on month).
-        hour (int): Hour component of the time (0-23).
-        min (int): Minute component of the time (0-59, can overflow).
-        sec (float): Seconds component of the time.
-
-    Returns:
-        tuple: Adjusted (year, month, day, hour, min, sec) considering overflow.
-    """
-
-    # Handle second overflow (if needed)
-    if sec >= 60:
-        min += int(sec // 60)  # Increment minutes by seconds overflow
-        sec = sec % 60  # Keep remaining seconds
-
-    # Handle minute overflow
-    if min >= 60:
-        hour += min // 60  # Increment hours by minute overflow
-        min = min % 60  # Keep remaining minutes
-
-    # Handle hour overflow
-    if hour >= 24:
-        day += hour // 24  # Increment days by hour overflow
-        hour = hour % 24  # Keep remaining hours
-
-    # Handle day overflow (check if day exceeds days in the current month)
-    while day > calendar.monthrange(year, month)[1]:  # Get number of days in month
-        day -= calendar.monthrange(year, month)[1]  # Subtract days in current month
-        month += 1  # Increment month
-
-        # Handle month overflow
-        if month > 12:
-            month = 1
-            year += 1  # Increment year if month overflows
-
-    return f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec}'
-
-
-def get_phase_utc(year, month, day, hour, min, sec, phase_min, phase_sec):
-    """
-    This function is to check the time of the phase.
-    """
-    if phase_min < min:  # example: 08:00:05 07:59:59
-        hour += 1
-        return check_time(year, month, day, hour, phase_min, phase_sec)
-    else:
-        return check_time(year, month, day, hour, phase_min, phase_sec)
 
 
 def utc_get_ymd(time_string: str) -> str:
@@ -194,118 +139,6 @@ class Magnitude:
                 return ymd, secondary_elements
             else:
                 return ymd, prioriry_elements
-
-    @staticmethod
-    def process_h3dd(dout_file: Path, station_info: Path):
-        """
-        Processing h3dd into mag ready format
-        """
-        with open(dout_file) as f:
-            lines = f.readlines()
-
-        mag_event_header = [
-            'year',
-            'month',
-            'day',
-            'time',
-            'total_seconds',
-            'longitude',
-            'latitude',
-            'depth_km',
-            'h3dd_event_index',
-        ]
-        mag_picks_header = [
-            'station_id',
-            'phase_time',
-            'total_seconds',
-            'phase_type',
-            'dist',
-            'azimuth',
-            'takeoff_angle',
-            'elevation',
-            'h3dd_event_index',
-        ]
-        df_station = pd.read_csv(
-            station_info,
-            dtype={
-                'station': 'str',
-                'longitude': 'float',
-                'latitude': 'float',
-                'elevation': 'float',
-            },
-        )
-        mag_event_list = []
-        mag_picks_list = []
-        event_index = -1
-        for line in lines:
-            if line.strip()[0].isdigit():
-                event_index += 1
-                year = int(line[1:5].strip())
-                month = int(line[5:7].strip())
-                day = int(line[7:9].strip())
-                hour = int(line[9:11].strip())
-                min = int(line[11:13].strip())
-                sec = float(line[13:19].strip())
-                total_seconds = hour * 3600 + min * 60 + sec
-                utctime = f'{year:4}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:05.2f}'
-                lat_part = line[19:26].strip()
-                lon_part = line[26:34].strip()
-                event_lon = round(dmm_trans(lon_part), 3)
-                event_lat = round(dmm_trans(lat_part), 3)
-                depth = line[34:40].strip()
-                mag_event_list.append(
-                    [
-                        year,
-                        month,
-                        day,
-                        utctime,
-                        total_seconds,
-                        event_lon,
-                        event_lat,
-                        depth,
-                        event_index,
-                    ]
-                )
-            else:
-                station = line[1:5].strip()
-                dist = float(line[5:11].strip())
-                azi = int(line[12:15].strip())
-                toa = int(line[16:19].strip())
-                phase_min = int(line[20:23].strip())
-                p_weight = line[35:39].strip()
-                s_weight = line[51:55].strip()
-                elevation = (
-                    df_station[df_station['station'] == station].iloc[0].elevation
-                    / 1000
-                )
-
-                if p_weight == '1.00':
-                    phase_sec = float(line[23:29].strip())
-                    phase_type = 'P'
-
-                elif s_weight == '1.00':
-                    phase_sec = float(line[40:45].strip())
-                    phase_type = 'S'
-                total_seconds = hour * 3600 + phase_min * 60 + phase_sec
-                phase_time = get_phase_utc(
-                    year, month, day, hour, min, sec, phase_min, phase_sec
-                )
-                mag_picks_list.append(
-                    [
-                        station,
-                        phase_time,
-                        total_seconds,
-                        phase_type,
-                        dist,
-                        azi,
-                        toa,
-                        elevation,
-                        event_index,
-                    ]
-                )
-        df_h3dd_events = pd.DataFrame(mag_event_list, columns=mag_event_header)
-        df_h3dd_picks = pd.DataFrame(mag_picks_list, columns=mag_picks_header)
-        return df_h3dd_events, df_h3dd_picks
 
     def _kinethreshold(
         self, comp_list: set[str], station: str, t1: UTCDateTime, t2: UTCDateTime
@@ -563,7 +396,7 @@ class Magnitude:
         """
         Spawn processes to run `get_mag` for multiple event indices in parallel.
         """
-        self.df_h3dd_events, self.df_h3dd_picks = self.process_h3dd(
+        self.df_h3dd_events, self.df_h3dd_picks = process_h3dd(
             dout_file=self.dout_file, station_info=self.station_info
         )
 

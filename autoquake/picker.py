@@ -163,7 +163,9 @@ class PhaseNet:
         # Initialize instance variables based on parsed self.args
         self.input_to_args()
 
-        self.picks = self.result_path / f'picks_{model}' / self.dir_name / 'picks.csv'
+
+    def get_picks(self):
+        return self.picks
 
     def _check_result_dir(self, result_path: Path | None) -> Path:
         """## Check whether result directory exists or not
@@ -879,3 +881,4 @@ class PhaseNet:
             model=self.model,
             dir_name=self.dir_name,
         )
+        self.picks = self.result_path / f'picks_{self.model}' / self.dir_name / 'picks.csv'

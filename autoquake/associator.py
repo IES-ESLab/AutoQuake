@@ -120,7 +120,7 @@ class GaMMA:
         """
         Get the Path of the gamma_events.csv
         """
-        return self.picks
+        return self.events
 
     def _check_station(self, station: Path) -> pd.DataFrame:
         df = pd.read_csv(station)

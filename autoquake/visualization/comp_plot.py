@@ -1,6 +1,6 @@
 # import glob
 import logging
-import h5py
+
 # import calendar
 import multiprocessing as mp
 from datetime import datetime
@@ -12,6 +12,7 @@ from typing import Any
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import h5py
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,6 +39,10 @@ from ._plot_base import (
     plot_station,
     station_mask,
 )
+
+EQUIP_FILTER = lambda x: str(x)[0].isalpha()
+EVENT_FILTER = lambda x: str(x)[0].isdigit()
+
 
 
 def find_inter_station(cwa_dout, gamma_picks, station_mask=station_mask):
@@ -1031,6 +1036,8 @@ def find_compared_gafocal_polarity(
     h5_parent_dir=None,
     sac_parent_dir=None,
     hout_file=None,
+    equip_filter=EQUIP_FILTER,
+    event_filter=EVENT_FILTER,
 ):
     """
     From gafocal to find the match event's polarity information and more.
@@ -1053,6 +1060,8 @@ def find_compared_gafocal_polarity(
         df_hout=df_hout,
         polarity_dout=polarity_dout,
         event_index=event_index,
+        equip_filter=equip_filter,
+        event_filter=event_filter,
         get_waveform=get_waveform,
         sac_parent_dir=sac_parent_dir,
         h5_parent_dir=h5_parent_dir,

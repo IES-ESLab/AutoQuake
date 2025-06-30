@@ -15,6 +15,7 @@ from pyproj import Geod
 from cartopy.mpl.geoaxes import GeoAxes
 from geopy.distance import geodesic
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 from matplotlib.colors import LightSource, Normalize
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import MultipleLocator
@@ -22,7 +23,7 @@ from obspy import Stream, Trace, UTCDateTime, read
 from pyrocko import moment_tensor as pmt
 from pyrocko.plot import beachball, mpl_color
 from scipy.interpolate import griddata
-from typing import Any 
+from typing import Any, Literal 
 from decimal import Decimal, ROUND_HALF_UP
 
 # ===== Sauce =====
@@ -228,6 +229,8 @@ def _txt_preprocessor(df: pd.DataFrame) -> pd.DataFrame:
     elif '/' in df[0].iloc[0]:  # gafocal
         df[1] = df[1].apply(check_hms_gafocal)
         df['time'] = df[0].apply(lambda x: x.replace('/', '-')) + 'T' + df[1]
+        for col in [6, 8, 10]:
+            df[col] = df[col].map(lambda x: int(x.split('+')[0]))
         df = df.rename(
             columns={
                 2: 'longitude',
@@ -333,7 +336,7 @@ def catalog_filter(
             & (catalog_df[f'{prefix}latitude'] < catalog_range['max_lat'])
             & (catalog_df[f'{prefix}depth_km'] > catalog_range['min_depth'])
             & (catalog_df[f'{prefix}depth_km'] < catalog_range['max_depth'])
-        ]
+        ].copy()
 
     return catalog_df
 
@@ -425,7 +428,7 @@ def preprocess_gamma_csv(
             'event_point': (df_h3dd['latitude'], df_h3dd['longitude']),
             'event_depth': df_h3dd['depth_km'],
         }
-    print(event_dict)
+    #print(event_dict)
     df_picks = pd.read_csv(gamma_picks)
     df_event_picks = df_picks[df_picks['event_index'] == event_i].copy()
     # TODO: does there have any possible scenario?
@@ -692,12 +695,11 @@ def find_sac_data(
             0, (posttime - pretime) + sampling_rate, sampling_rate
         )  # using array to ensure the time length as same as time_window.
         x_len = len(time_sac)
-        # try:
-        # logging.info(f'{st}')
-        data_sac_raw = st[0].data / max(st[0].data)  # normalize the amplitude.
-        # except Exception as e:
-        #     logging.info(f'Error: {e} at {sta} in find_sac_data')
-        #     continue
+        try:
+            data_sac_raw = st[0].data / max(st[0].data)  # normalize the amplitude.
+        except Exception as e:
+            logging.info(f'Check {sta} whether in gamma_picks')
+            continue
 
         sta_lon = df_station[df_station['station'] == sta]['longitude'].iloc[0]
         sta_lat = df_station[df_station['station'] == sta]['latitude'].iloc[0]
@@ -984,11 +986,11 @@ def _find_station_focal(
     polarity_dout: Path,
     event_index: int,
     focal_dict: dict,
+    equip_filter,
+    event_filter,
     get_waveform=False,
     sac_parent_dir: Path | None = None,
     h5_parent_dir: Path | None = None,
-    equip_filter=lambda x: str(x)[1].isalpha(),
-    event_filter=lambda x: str(x)[0].isdigit(),
 ):
     """## This is the private function to append azimuth, take-off angle, and polarity.
     Using get_waveform == True to further acquire the waveform data for validating the
@@ -1062,8 +1064,91 @@ def _find_station_focal(
                 'train_time': train_time,
                 'train_sac': train_sac,
             }
-    pass
 
+def _find_station_focal_new(
+    polarity_picks: Path,
+    polarity_dout: Path,
+    event_index: int,
+    focal_dict: dict,
+    equip_filter,
+    event_filter,
+    get_waveform=False,
+    sac_parent_dir: Path | None = None,
+    h5_parent_dir: Path | None = None,
+):
+    """## This is the latest version by using csv but not lines
+    Using get_waveform == True to further acquire the waveform data for validating the
+    result of polarity.
+
+    Args:
+        - Event_index: the index of the event in the polarity_dout file, which is h3dd_index.
+    """
+    df = pd.read_csv(polarity_picks)
+    df = df[df['h3dd_event_index'] == event_index].copy()
+    pol_dict = {
+        'D': '-',
+        'U': '+',
+        'x': ' '
+    }
+    with open(polarity_dout) as r:
+        lines = r.read().splitlines()
+    counter = -1
+    for line in lines:
+        if event_filter(line.strip()):
+            counter += 1
+        elif counter == event_index:
+            sta = line[1:5].strip()
+            azi = int(line[12:15].strip())
+            toa = int(line[16:19].strip())
+            polarity = line[19:20]
+            if 'station_info' not in focal_dict:
+                focal_dict['station_info'] = {}
+
+            focal_dict['station_info'][sta] = {
+                'azimuth': azi,
+                'takeoff_angle': toa,
+                'polarity': polarity,
+            }
+    if 'station_info' not in focal_dict:
+        focal_dict['station_info'] = {}
+
+    if not get_waveform:
+        for row in df.itertuples():
+            sta = row.station_id
+            phase_time = row.phase_time
+            phase_score = row.phase_score
+            focal_dict['station_info'][sta]['p_arrival'] = UTCDateTime(phase_time)
+
+    else:
+        for row in df.itertuples():
+            sta = row.station_id
+            phase_time = row.phase_time
+            date = phase_time[:4] + phase_time[5:7] + phase_time[8:10]
+            print(date)
+            p_arrival = UTCDateTime(phase_time)
+            phase_score = row.phase_score
+            if sac_parent_dir is not None:
+                visual_time, visual_sac, train_time, train_sac = (
+                    _find_pol_waveform_seis(sta, sac_parent_dir, date, p_arrival)
+                )
+            # elif h5_parent_dir is not None:
+            #     total_seconds = hour * 3600 + p_min * 60 + p_sec
+            #     visual_time, visual_sac, train_time, train_sac = _find_pol_waveform_das(
+            #         sta, date, p_arrival, total_seconds, h5_parent_dir
+            #     )
+            else:
+                raise ValueError(
+                    'Please check the equip_filter, and please provide the corresponded data Path.'
+                )
+
+            # final writing
+            focal_dict['station_info'][sta]['p_arrival'] = p_arrival
+            focal_dict['station_info'][sta]['phase_score'] = phase_score
+            focal_dict['station_info'][sta]['visual_time'] = visual_time
+            focal_dict['station_info'][sta]['visual_sac'] = visual_sac
+            focal_dict['station_info'][sta]['train_time'] = train_time
+            focal_dict['station_info'][sta]['train_sac'] = train_sac
+            
 
 def _preprocess_focal_files(
     gafocal_txt: Path, polarity_dout: Path, hout_file: Path | None = None
@@ -1092,7 +1177,10 @@ def find_gafocal_polarity(
     df_gafocal: pd.DataFrame,
     df_hout: pd.DataFrame,
     polarity_dout: Path,
+    polarity_picks: Path,
     event_index: int,
+    equip_filter,
+    event_filter,
     get_waveform=False,
     h5_parent_dir=None,
     sac_parent_dir=None,
@@ -1114,21 +1202,24 @@ def find_gafocal_polarity(
 
     focal_dict = {
         'utc_time': event_info.time,
-        'timestamp': event_info.timestamp,
+        # 'timestamp': event_info.timestamp,
         'longitude': event_info.longitude,
         'latitude': event_info.latitude,
         'depth': event_info.depth_km,
+        'magnitude': event_info.magnitude
     }
     focal_dict['focal_plane'] = {
-        'strike': int(event_info.strike.split('+')[0]),
-        'dip': int(event_info.dip.split('+')[0]),
-        'rake': int(event_info.rake.split('+')[0]),
+        'strike': event_info.strike,#int(event_info.strike.split('+')[0]),
+        'dip': event_info.dip,#int(event_info.dip.split('+')[0]),
+        'rake': event_info.rake,#int(event_info.rake.split('+')[0]),
     }
     focal_dict['quality_index'] = event_info.quality_index
     focal_dict['num_of_polarity'] = event_info.num_of_polarity
 
     # finding corresponded dout file, and assign the correct h3dd_index.
-    df_test = df_hout[np.abs(df_hout['timestamp'] - event_info.timestamp) < 1]
+    # df_test = df_hout[np.abs(df_hout['timestamp'] - event_info.timestamp) < 1]
+    conditions = [i.seconds < 1 for i in (pd.to_datetime(df_hout['time']) - pd.Timestamp(event_info.time))]
+    df_test = df_hout[conditions]
     df_test = df_test[
         (
             np.abs(df_test['longitude'] - event_info.longitude) < 0.02
@@ -1139,11 +1230,14 @@ def find_gafocal_polarity(
     ]
 
     h3dd_index = df_test.index[0]
-    _find_station_focal(
+    _find_station_focal_new(
+        polarity_picks=polarity_picks,
         polarity_dout=polarity_dout,
         focal_dict=focal_dict,
         event_index=h3dd_index,
         get_waveform=get_waveform,
+        equip_filter=equip_filter,
+        event_filter=event_filter,
         h5_parent_dir=h5_parent_dir,
         sac_parent_dir=sac_parent_dir,
     )
@@ -1259,6 +1353,7 @@ def plot_polarity_waveform(
     for index, station in enumerate(focal_station_list):
         try:
             polarity = main_focal_dict['station_info'][station]['polarity']
+            phase_score = main_focal_dict['station_info'][station]['phase_score']
             ii = index // n_cols
             jj = index % n_cols
             ax = fig.add_subplot(gs[ii, jj])
@@ -1289,7 +1384,12 @@ def plot_polarity_waveform(
                         color='g',
                     )
             else:
-                ax.set_title(f'{station}({polarity})', fontsize=20)
+                ax.set_title(
+                    f'{station}({polarity}, phase score: {phase_score})',
+                    fontsize=20,
+                    color = 'r' if polarity == '+' else 'b',
+                    weight='bold'
+                    )
             ax.set_xticklabels([])  # Remove the tick labels but keep the ticks
             ax.set_yticklabels([])  # Remove the tick labels but keep the ticks
             ax.xaxis.set_major_locator(MultipleLocator(0.5))
@@ -1385,15 +1485,16 @@ def _append_tracer_azi_takeoff(
             logging.info(f'{sta} not in the polarity list, skip')
 
 
-def process_directories(parent_dir, i):
+def process_directories(parent_dir: str | Path, i):
     """
     Processes subdirectories of a given parent directory.
     Skips processing if any file matching the pattern 'Event_*.png' is found.
     """
-    parent_path = Path(parent_dir)
+    if isinstance(parent_dir, str):
+        parent_dir = Path(parent_dir)
 
     # Iterate through subdirectories
-    for sub_dir in parent_path.iterdir():
+    for sub_dir in parent_dir.iterdir():
         if sub_dir.is_dir():  # Check if it's a directory
             # Glob for matching files
             matching_files = list(sub_dir.glob(f'Event_{i}_*.png'))
@@ -1404,7 +1505,8 @@ def process_directories(parent_dir, i):
 
 
 def get_only_beach(
-    df_gafocal, polarity_dout, df_hout, event_index, output_dir, name='GAFocal'
+    df_gafocal, polarity_picks, df_hout, event_index, output_dir,
+    equip_filter=lambda x: str(x)[0].isalpha(), event_filter=lambda x: str(x)[0].isdigit(), name='GAFocal'
 ):
     """## plot beachball only. waveform no needed"""
     logging.info(f'event_index: {event_index}')
@@ -1414,8 +1516,10 @@ def get_only_beach(
     focal_dict = find_gafocal_polarity(
         df_gafocal=df_gafocal,
         df_hout=df_hout,
-        polarity_dout=polarity_dout,
+        polarity_picks=polarity_picks,
         event_index=event_index,
+        equip_filter=equip_filter,
+        event_filter=event_filter
     )
     fig, ax = plt.subplots(figsize=(10, 10))
     plot_beachball_info(
@@ -1428,7 +1532,7 @@ def get_only_beach(
     plt.tight_layout()
     plt.savefig(
         output_dir
-        / f"Event_{event_index}_{focal_dict['utc_time'].replace('-','_').replace(':', '_')}.png",
+        / f"Q{int(round(focal_dict['quality_index'], 0))}_M{int(round(focal_dict['magnitude'],0))}_{focal_dict['utc_time'].replace('-','_').replace(':', '_')}.png",
         bbox_inches='tight',
         dpi=300,
     )
@@ -1437,18 +1541,22 @@ def get_only_beach(
 
 
 def get_single_beach(
-    df_gafocal,
-    polarity_dout,
-    df_hout,
-    event_index,
-    output_dir,
-    gamma_events=None,
-    gamma_detailed=None,
+    df_gafocal: pd.DataFrame,
+    polarity_dout: Path,
+    polarity_picks: Path, # with h3dd index
+    df_hout: pd.DataFrame,
+    event_index: int,
+    output_dir: Path,
     get_waveform=False,
     sac_parent_dir: Path | None = None,
     h5_parent_dir: Path | None = None,
+    equip_filter=lambda x: str(x)[0].isalpha(),
+    event_filter=lambda x: str(x)[0].isdigit(),
+    gamma_events=None,
+    gamma_detailed=None,
     das_size=5.0,
     das_edge_size=2.0,
+    add_info=False
 ):
     """## plot beachball only."""
     logging.info(f'event_index: {event_index}')
@@ -1459,27 +1567,30 @@ def get_single_beach(
         df_gafocal=df_gafocal,
         df_hout=df_hout,
         polarity_dout=polarity_dout,
+        polarity_picks=polarity_picks,
         event_index=event_index,
         get_h3dd_index=True,
         get_waveform=get_waveform,
         sac_parent_dir=sac_parent_dir,
         h5_parent_dir=h5_parent_dir,
+        equip_filter=equip_filter,
+        event_filter=event_filter
     )
-    if gamma_events is not None and gamma_detailed is not None:
-        gamma_index = find_gamma_index(gamma_events=gamma_events, h3dd_index=h3dd_index)
-        df_type_table = pd.read_csv(gamma_detailed)
-        df_type_table = df_type_table[['event_index', 'event_type']]
-        event_type = df_type_table[df_type_table['event_index'] == gamma_index][
-            'event_type'
-        ].iloc[0]
-        dir_map = {
-            1: 'Event_type_1_seis_6P2S_DAS_15P',
-            2: 'Event_type_2_seis_6P2S',
-            3: 'Event_type_3_DAS_15P',
-            4: 'Event_type_4_Not_reach_the_standard',
-        }
-        output_dir = output_dir / dir_map[event_type]
-        output_dir.mkdir(parents=True, exist_ok=True)
+    # if gamma_events is not None and gamma_detailed is not None:
+    #     gamma_index = find_gamma_index(gamma_events=gamma_events, h3dd_index=h3dd_index)
+    #     df_type_table = pd.read_csv(gamma_detailed)
+    #     df_type_table = df_type_table[['event_index', 'event_type']]
+    #     event_type = df_type_table[df_type_table['event_index'] == gamma_index][
+    #         'event_type'
+    #     ].iloc[0]
+        # dir_map = {
+        #     1: 'Event_type_1_seis_6P2S_DAS_15P',
+        #     2: 'Event_type_2_seis_6P2S',
+        #     3: 'Event_type_3_DAS_15P',
+        #     4: 'Event_type_4_Not_reach_the_standard',
+        # }
+        # output_dir = output_dir / dir_map[event_type]
+        # output_dir.mkdir(parents=True, exist_ok=True)
     fig = plt.figure(figsize=(32, 32))
     gs1 = GridSpec(10, 18, left=0.65, right=0.9, top=0.95, bottom=0.05, wspace=0.1)
     plot_beachball_info(
@@ -1489,6 +1600,7 @@ def get_single_beach(
         gs=gs1,
         das_size=das_size,
         das_edge_size=das_edge_size,
+        add_info=add_info
     )
     comp_focal_dict = defaultdict(dict)
     if get_waveform:
@@ -1514,6 +1626,8 @@ def get_tracer_beach(
     df_hout,
     event_index,
     output_dir,
+    equip_filter,
+    event_filter,
     gamma_events=None,
     gamma_detailed=None,
     get_waveform=False,
@@ -1536,12 +1650,14 @@ def get_tracer_beach(
     focal_dict, h3dd_index = find_gafocal_polarity(
         df_gafocal=df_gafocal,
         df_hout=df_hout,
-        polarity_dout=polarity_dout,
+        polarity_picks=polarity_dout,
         event_index=event_index,
         get_h3dd_index=True,
         get_waveform=get_waveform,
         sac_parent_dir=sac_parent_dir,
         h5_parent_dir=h5_parent_dir,
+        equip_filter=equip_filter,
+        event_filter=event_filter
     )
     logging.info(f'input_tracer: {input_tracer}')
     logging.info(f'tt_table: {tt_table}')
@@ -1864,14 +1980,29 @@ def _add_das_picks(
 
 
 # ===== get function =====
-def get_mapview(region: list, ax: GeoAxes, title='Map', use_fault=True, **kwargs):
+def get_mapview(
+        region: list,
+        ax: GeoAxes,
+        title: str | None = None,
+        use_fault=True,
+        cmap='gray',
+        fault_lw=2,
+        coastline_lw=1,
+        hillshade=True,
+        resolution='15s',
+        adjust_grid=False,
+        inside=False,
+        vert_exag=10,
+        **kwargs
+        ):
+    # from matplotlib.colors import ListedColormap
     """## Plotting the basic map.
 
     Notice here, the ax should be a GeoAxes! A subclass of `matplotlib.axes.Axes`.
     """
     tw_coast = Path(__file__).parent / 'geo_map' / 'tw_coast.txt'
     topo = (
-        pygmt.datasets.load_earth_relief(resolution='15s', region=region).to_numpy()
+        pygmt.datasets.load_earth_relief(resolution=resolution, region=region).to_numpy()
         / 1e3
     )  # km
     x = np.linspace(region[0], region[1], topo.shape[1])
@@ -1879,28 +2010,54 @@ def get_mapview(region: list, ax: GeoAxes, title='Map', use_fault=True, **kwargs
     dx, dy = 1, 1
     xgrid, ygrid = np.meshgrid(x, y)
     ls = LightSource(azdeg=0, altdeg=45)
+
+    # cmap operation
+    # original_cmap = plt.get_cmap(cmap)
+
+    # # Sample only the upper half (e.g. top 50% of color range)
+    # colors = original_cmap(np.linspace(0, 0.5, 256))  # change 0.5 to other values if needed
+    # new_cmap = ListedColormap(colors)
     ax.pcolormesh(
         xgrid,
         ygrid,
-        ls.hillshade(topo, vert_exag=10, dx=dx, dy=dy),
-        vmin=-1,
+        ls.hillshade(topo, vert_exag=vert_exag, dx=dx, dy=dy) if hillshade else topo,
+        vmin=-1 if hillshade else None,
         shading='gouraud',
-        cmap='gray',
+        cmap=cmap,
         alpha=1.0,
         antialiased=True,
         rasterized=True,
     )
     # cartopy setting
     # ax.coastlines()
-    add_tw_coast(ax, tw_coast)
+    add_tw_coast(ax, tw_coast, coastline_lw, color='k')
     if use_fault:
-        add_fault(ax)
+        add_fault(ax, lw=fault_lw)
+        add_fault_csv(ax, lw=fault_lw)
     ax.set_extent(region)
-    ax.set_title(title, **kwargs)
-    gl = ax.gridlines(draw_labels=True)
-    gl.top_labels = False  # Turn off top labels
-    gl.right_labels = False
-
+    if title:
+        ax.set_title(title, **kwargs)
+    ax.set_ylabel('Latitude', fontsize=12, weight='bold')
+    if not adjust_grid:
+        gl = ax.gridlines(draw_labels=True)
+        gl.top_labels = False  # Turn off top labels
+        if inside:
+            gl.left_labels = False
+            gl.bottom_labels = False
+            gl.ylabel_style = {
+                'rotation': 270,
+            }
+        else:
+            gl.right_labels = False  # Turn off top labels
+            gl.xlabel_style = {
+                'weight': 'bold',
+                'size': 20
+            }
+            gl.ylabel_style = {
+                'rotation': 90,
+                'weight': 'bold',
+                'size': 20
+            }    
 
 def get_phasenet_das(
     picks: Path,
@@ -2020,6 +2177,7 @@ def plot_station(
     fontsize=10,
     text_dist=0.01,
     zorder=4,
+    station_size=50,
     station_mask=station_mask,
 ):
     """
@@ -2043,8 +2201,8 @@ def plot_station(
         geo_ax.scatter(
             df_station[mask_alpha]['longitude'],
             df_station[mask_alpha]['latitude'],
-            s=50,
-            c='c',
+            s=station_size,
+            c='c' if color is None else color,
             marker='^',
             edgecolors='k',
             alpha=0.7,
@@ -2071,6 +2229,7 @@ def plot_station(
                         fontsize=fontsize,
                         clip_on=True,
                         zorder=zorder,
+                        # weight='bold'
                     )
 
 
@@ -2133,7 +2292,8 @@ def get_beach(
         # project to 2D with same projection as used in beachball
         x, y = beachball.project(points, projection=projection).T
         # TODO: adding the DAS condition
-        if sta[1].isalpha() or is_cwa:
+        #TODO: PLEASE REMOVE ALL THIS CUMBERSOME SHITS.
+        if sta[0].isalpha() or is_cwa:
             if polarity == '+':
                 ax.plot(
                     x,
@@ -2213,7 +2373,7 @@ def get_beach(
 
 
 def quick_indexing(
-    gamma_picks, gafocal_txt, polarity_dout, gamma_events, gafocal_index_list
+    gamma_picks, gafocal_txt, polarity_dout, gamma_events, gafocal_index_list, equip_filter, event_filter
 ):
     df_gafocal, df_hout = _preprocess_focal_files(
         gafocal_txt=gafocal_txt, polarity_dout=polarity_dout
@@ -2227,6 +2387,8 @@ def quick_indexing(
             polarity_dout=polarity_dout,
             event_index=i,
             get_h3dd_index=True,
+            equip_filter=equip_filter,
+            event_filter=event_filter
         )
         gamma_index = find_gamma_index(gamma_events=gamma_events, h3dd_index=h3dd_index)
         gamma_list.append(gamma_index)
@@ -2237,7 +2399,7 @@ def quick_indexing(
 
 
 def add_fault(
-    ax: Axes, color='r', fault_txt: Path | None = None, transform=ccrs.PlateCarree()
+    ax: Axes, color='r', fault_txt: Path | None = None, lw=2, transform=ccrs.PlateCarree(), **kwags
 ):
     """
     Adding the fault line on the map.
@@ -2261,12 +2423,48 @@ def add_fault(
             fault_dir[fault_name]['longitude'],
             fault_dir[fault_name]['latitude'],
             color=color,
-            linewidth=1,
+            linewidth=lw,
             transform=transform,
             label=fault_name,
-            zorder=10
+            zorder=5,
+            **kwags
         )
+        # ax.text(
+        #     x = fault_dir[fault_name]['longitude'][0],
+        #     y = fault_dir[fault_name]['latitude'][1],
+        #     s = fault_name,
+        #     fontsize=15
+        # )
 
+def add_fault_csv(
+    ax: Axes, fault_csv: Path | pd.DataFrame | None = None, lw=2, transform=ccrs.PlateCarree(), **kwargs
+):
+    """
+    Adding the fault line on the map.
+    """
+    if isinstance(fault_csv, Path):
+        df = pd.read_csv(fault_csv)
+    elif isinstance(fault_csv, pd.DataFrame):
+        df = fault_csv
+    else:
+        fault_csv = Path(__file__).parent / 'geo_map' / 'my_georeference' / 'geomap.csv'
+        df = pd.read_csv(fault_csv)
+        df['color'] = 'r'
+
+    for fault_name in df['name'].unique():
+        color = df[df['name'] == fault_name]['color'].unique()[0]
+        linestyle = df[df['name'] == fault_name]['line_style'].unique()[0]
+        ax.plot(
+            df[df['name'] == fault_name]['longitude'],
+            df[df['name'] == fault_name]['latitude'],
+            color=color,
+            linewidth=lw,
+            linestyle='--' if linestyle == 0 else None,
+            transform=transform,
+            label=fault_name,
+            zorder=5,
+            **kwargs
+        )
 
 def add_beachballs(gafocal_txt: Path, ax, on='mapview'):
     """
@@ -2322,7 +2520,7 @@ def add_single_beachball(ax, strike: int, dip: int, rake: int, x: float, y: floa
     )
 
 
-def add_tw_coast(ax: Axes, tw_coast: Path):
+def add_tw_coast(ax: Axes, tw_coast: Path, lw=1, **kwargs):
     with open(tw_coast) as f:
         lines = f.readlines()
     for line in lines:
@@ -2331,10 +2529,10 @@ def add_tw_coast(ax: Axes, tw_coast: Path):
                 ax.plot(
                     lon_list,
                     lat_list,
-                    'k',
                     transform=ccrs.PlateCarree(),
-                    linewidth=1,
+                    linewidth=lw,
                     zorder=5,
+                    **kwargs
                 )
                 lon_list, lat_list = [], []
             except Exception as e:
@@ -2499,11 +2697,17 @@ def add_vel_profile(
         distances, depth_subset, velocity_grid, levels=levels,
         cmap=min_max_map[mode][2], vmin=min_max_map[mode][0], vmax=min_max_map[mode][1]
     )
+    cax_label_map = {
+        'vpt': 'Vp Perturbation',
+        'vst': 'Vs Perturbation',
+        'vpvst': 'Vp/Vs Perturbation'
+    }
     if cax is not None:
         cbar = plt.colorbar(contourf, cax=cax)
-    else:
-        cbar = plt.colorbar(contourf, ax=ax)
-    cbar.set_label(mode)
+        cbar.set_label(cax_label_map[mode], fontsize=15, weight='bold')
+    # else:
+    #     cbar = plt.colorbar(contourf, ax=ax)
+    
 
 def extract_topo_profile_with_geod(
         csv_path: Path,
@@ -2559,7 +2763,7 @@ def extract_topo_profile_with_geod(
     
     return distances, grid_elevations
 
-def add_topo_profile(ax: Axes, distances, elevations, profile_letter=''):
+def add_topo_profile(ax: Axes, distances, elevations, profile_letter='', ax_alpha=1, show_ylabel=True):
     """
     Plot the topographic profile.
     
@@ -2567,19 +2771,152 @@ def add_topo_profile(ax: Axes, distances, elevations, profile_letter=''):
     - distances: Array of distances along the profile.
     - elevations: Array of interpolated elevation values.
     """
-    
+    #alpha
+    ax.patch.set_alpha(ax_alpha)
+
     ax.fill_between(distances, elevations / 1000, color="black", alpha=0.7)  # Convert to km
     ax.axhline(0, color="blue", linestyle="--", linewidth=0.8, alpha=0.8)  # Groundline
-
+    
     ax.set_xticks([])
     ax.spines['top'].set_visible(False)  # Hide the top spine
     ax.spines['right'].set_visible(False)  # Hide the right spine
     ax.spines['bottom'].set_visible(False)  # Hide the bottom spine    
     ax.tick_params(axis="x", which="both", bottom=False, labelbottom=False)  # No x-axis ticks/labels    
-    ax.set_ylabel("Topo (km)")
+    if show_ylabel:
+        ax.set_ylabel("Topo (km)", fontsize=13, weight='bold')
     ax.set_xlim(distances[0], distances[-1])
 
     # Only keep left y-axis
     ax.spines['left'].set_position(('outward', 5))  # Offset the left spine slightly
     ax.tick_params(axis="y", which="both", direction="out", length=5)  # Customize y-tick style
-    ax.set_title(f"Earthquake Profile: {profile_letter}_{profile_letter}'", fontsize=20)
+    ax.set_title(f"Profile: {profile_letter}-{profile_letter}'", fontsize=20, weight='bold')
+
+def _add_epicenter(
+    x: float,
+    y: float,
+    ax,
+    size=10,
+    color='yellow',
+    markeredgecolor='black',
+    label='Epicenter',
+    alpha=0.5,
+    zorder=10,
+    markeredgewidth=1.0
+):
+    """## adding epicenter."""
+    ax.plot(
+        x,
+        y,
+        '*',
+        markersize=size,
+        color=color,
+        markeredgecolor=markeredgecolor,
+        markeredgewidth=markeredgewidth,
+        label=label,
+        alpha=alpha,
+        zorder=zorder
+    )
+
+
+def plot_basemap(
+    geo_ax,
+    # axes,
+    stations: list[pd.DataFrame],
+    # fig_dir: Path,
+    region: list,
+    # fig_name='map.png',
+    title=None,
+    eq_list = [],
+    plot_station_name=False,
+    legend_on_map=False,
+    hillshade=False,
+    # fig_alpha=False,
+    cmap='gray',
+    fault_lw=2,
+    station_size=50,
+    station_mask=station_mask,
+    colors=[None],
+    resolution='15s',
+    vert_exag=10,
+    adjust_grid=False,
+    text_dist=0.01
+):
+    """
+    This function only plot the basemap without events.
+    """
+    # fig, axes = plt.subplots(
+    #     1,
+    #     1,
+    #     figsize=(12, 14),
+    # )    
+    # if fig_alpha:
+    #     fig.patch.set_alpha(0)
+    # geo_ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+    get_mapview(
+        region=region,
+        ax=geo_ax,
+        title=title,
+        cmap=cmap,
+        use_fault=True,
+        fault_lw=fault_lw,
+        hillshade=hillshade,
+        resolution=resolution,
+        vert_exag=vert_exag,
+        adjust_grid=adjust_grid
+        )
+    geo_ax.set_xlim(region[0], region[1])
+    geo_ax.set_ylim(region[2], region[3])
+    # Station
+    for station, color in zip(stations, colors):  
+        plot_station(
+            df_station=station,
+            geo_ax=geo_ax,
+            region=region,
+            plot_station_name=plot_station_name,
+            station_size=station_size,
+            text_dist=text_dist,
+            station_mask=station_mask,
+            color=color
+        )    
+    manual_elements = [
+        Line2D(
+            [0],
+            [0],
+            marker='^',
+            color='w',
+            label='Seismometer',
+            markersize=7,
+            markerfacecolor='c',
+            markeredgecolor='k',
+        ),
+    ]
+    for eq in eq_list:
+        _add_epicenter(
+            x=eq[0], y=eq[1], ax=geo_ax, size=eq[3], alpha=0.7, color=eq[4]
+        )
+        manual_elements.append(
+            Line2D(
+                [0],
+                [0],
+                marker='*',
+                color='w',
+                label=eq[3],
+                markersize=10,
+                markerfacecolor=eq[4],
+                markeredgecolor='k',
+            )
+        )
+    geo_ax.set_aspect('auto')
+    if legend_on_map:
+        geo_ax.legend(
+            handles=manual_elements,  # + legend_elements,
+            loc='upper left',
+            markerscale=2,
+            labelspacing=1.5,
+            borderpad=1,
+            fontsize=10,
+            framealpha=0.6,
+        )
+    # axes.axis('off')
+    # plt.tight_layout()
+    # plt.savefig(fig_dir / fig_name, dpi=300, bbox_inches='tight')                         

@@ -1,0 +1,40 @@
+{
+    "result_path": "/home/patrick/Work/Hualien0403/playground/tester",
+    "PhaseNet": {
+        "sac_parent_dir": "/home/patrick/Work/Hualien0403/data_parent_dir",
+        "startdate": "20240402",
+        "enddate": "20240402",
+        "pz_dir": "/raid1/share/for_patrick/AutoQuake_testset/PZ_dir"
+    },
+    "GaMMA": {
+        "station": "/home/patrick/Work/Hualien0403/Paper/station.csv",
+        "velocity_model": "/home/patrick/Work/AutoQuake/vel_model/Hualien_1D.vel",
+        "center": [121.625, 24.0],
+        "xlim_degree": [121, 122.25],
+        "ylim_degree": [23.25, 24.75],
+        "min_p_picks_per_eq": 6,
+        "min_s_picks_per_eq": 2,
+        "eps": 17.0,
+        "cpu_number": 40,
+        "use_amplitude": false
+    },
+    "H3DD": {
+        "num_of_times": 2,
+        "station": "/home/patrick/Work/Hualien0403/Paper/station.csv",
+        "model_3D": "/home/patrick/Work/AutoQuake/H3DD/tomops_H14",
+        "cutoff_distance_for_first_h3dd": 0.0,
+        "event_name_for_first_h3dd" : "Relo_c0",
+        "cutoff_distance_for_second_h3dd": 2.0,
+        "event_name_for_second_h3dd" : "Relo_c0_c2"
+    },
+    "Mag": {
+        "station": "/home/patrick/Work/Hualien0403/Paper/station.csv",
+        "sac_parent_dir": "/home/patrick/Work/Hualien0403/data_parent_dir",
+        "pz_dir": "/raid1/share/for_patrick/AutoQuake_testset/PZ_dir",
+        "cpu_number": 40
+    },
+    "Diting":{
+        "sac_parent_dir": "/home/patrick/Work/Hualien0403/data_parent_dir",
+        "cpu_number": 15
+    }
+}

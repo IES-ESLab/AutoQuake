@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
+import time
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +73,7 @@ class DitingMotion:
         h5_parent_dir=None,
         interval=300,
         sampling_rate=100.0,
+        need_resample=False, # this is pretty important, make sure whether the sampling rate of your instrument is 100 Hz
     ):
         """## Using DitingMotion to predict the polarity of the P-wave
 
@@ -94,6 +96,7 @@ class DitingMotion:
         self.sampling_rate = sampling_rate
         self.type_judge = type_judge
         self.indices = self._get_indices()
+        self.need_resample = need_resample
         # self._set_thread_options()
     
     def get_picks(self):
@@ -154,24 +157,40 @@ class DitingMotion:
             raise ValueError('Please provide sac_parent_dir')
 
         try:
+            merge_s = time.time()
             st = self._merge_latest(data_path, sta_name)
+            merge_e = time.time()
+            logging.debug(f"Merging station {sta_name} cost {round(merge_e - merge_s, 2)} s")
         except Exception as e:
-            logging.info(
+            logging.error(
                 f'Error during merging: {sta_name}_{e} when p_arrival: {p_arrival}'
             )
             return []
         try:
+            preprocess_s = time.time()
+            demean_s = time.time()
             st.detrend('demean')
             st.detrend('linear')
             st.taper(0.001)
-            st.resample(sampling_rate=self.sampling_rate)
+            demean_e = time.time()
+            logging.debug(f'demean + linear + taper cost {round(demean_e - demean_s, 2)} s')
+            if self.need_resample:
+                resamp_s = time.time()
+                st.resample(sampling_rate=self.sampling_rate)
+                resamp_e = time.time()
+                logging.debug(f'Resampling cost {round(resamp_e - resamp_s, 2)} s')
+            trim_s = time.time()
             starttime_trim = p_arrival - time_window
             endtime_trim = p_arrival + time_window
             st.trim(starttime=starttime_trim, endtime=endtime_trim)
             data = st[0].data[0:128]
+            trim_e = time.time()
+            logging.debug(f'Data trimming cost {round(trim_e - trim_s, 2)} s')
+            preprocess_e = time.time()
+            logging.debug(f"Preprocessing {sta_name} total cost {round(preprocess_e - preprocess_s, 2)} s")
             return data
         except Exception as e:
-            logging.info(
+            logging.error(
                 f'Error exist during process {sta_name}: {e}\np_arrival: {p_arrival}'
             )
             return []
@@ -199,7 +218,7 @@ class DitingMotion:
             try:
                 file = list((self.h5_parent_dir / f'{ymd}_hdf5').glob(f'*{window}'))[0]
             except IndexError:
-                logging.info(f'File not found for window {window}')
+                logging.error(f'File not found for window {window}')
                 return []
         else:
             raise ValueError('Please provide h5_parent_dir')
@@ -211,7 +230,7 @@ class DitingMotion:
                 # xxx = dir(ds)
                 data = ds[channel_index]
         except Exception as e:
-            logging.info(f'Error reading {file}: {e}')
+            logging.error(f'Error reading {file}: {e}')
             return []
         data = das_demean(data)
         data = das_detrend(data)
@@ -227,8 +246,8 @@ class DitingMotion:
         try:
             motion_input[0, :, 0] = data
         except Exception as e:
-            logging.info(f'Error: {e} -> row: {row}')
-            logging.info(f'data: {data}')
+            logging.error(f'Error: {e} -> row: {row}')
+            logging.error(f'data: {data}')
         if np.max(motion_input[0, :, 0]) != 0:
             motion_input[0, :, 0] -= np.mean(
                 motion_input[0, :, 0]
@@ -307,9 +326,11 @@ class DitingMotion:
             data = self.seis_get_data(
                 sta_name=row.station_id, p_arrival_=row.phase_time
             )
-
+        diting_s = time.time()
         polarity = self.diting_motion(data, row, motion_model)
         row['polarity'] = polarity
+        diting_e = time.time()
+        logging.debug(f"DiTing Motion cost {round(diting_e - diting_s, 2)} s")
         return row
 
     def predict(self, event_index) -> list:
@@ -320,16 +341,20 @@ class DitingMotion:
         # Filter DataFrame for the specific event_index and phase_type 'P'
         df_selected_picks = df_picks[
             (df_picks['event_index'] == event_index) & (df_picks['phase_type'] == 'P')
-        ]
+        ].copy()
         # Iterate through the selected picks
+        start_s = time.time()
         logging.info(f'event index: {event_index} start processing')
 
         processed_rows = []
         for _, row in df_selected_picks.iterrows():
+            logging.debug(f'----------Station: {row.station_id}----------')
             df_row = self.process_row(row=row, motion_model=model_session)
+            logging.debug('---------------------------------')
             if not df_row.empty:
                 processed_rows.append(df_row)
-        logging.info(f'event index: {event_index} processing over')
+        end_s = time.time()
+        logging.info(f'event index: {event_index} processing over, cost {round(end_s - start_s, 2)} s')
         return processed_rows
 
     def run_parallel_predict(self, processes=3):

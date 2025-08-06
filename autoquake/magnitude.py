@@ -1,5 +1,6 @@
 import calendar
 import logging
+logger = logging.getLogger(__name__)
 import math
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
@@ -33,7 +34,7 @@ def utc_get_ymd(time_string: str) -> str:
         datetime_obj = datetime.strptime(time_string, '%Y-%m-%dT%H:%M:%S.%f')
     except Exception as e:
         datetime_obj = datetime.strptime(time_string, '%Y-%m-%dT%H:%M:%S')
-        logging.info(f'{e}, so we use %Y-%m-%dT%H:%M:%S')
+        logger.warning(f'{e}, so we use %Y-%m-%dT%H:%M:%S')
     ymd = datetime_obj.strftime('%Y%m%d')
     return ymd
 
@@ -103,6 +104,7 @@ class Magnitude:
                 ymd_list.add(ymd)
 
         stream = Stream()
+        logger.debug(f"Date list: {ymd_list}")
         for ymd in ymd_list:
             sac_list = list((self.sac_parent_dir / ymd).glob(f'*{sta_name}*{comp}*'))
             if not sac_list:
@@ -110,7 +112,7 @@ class Magnitude:
             for sac_file in sac_list:
                 st = read(sac_file)
                 stream += st
-        stream = stream.merge(fill_value='latest')
+        stream = stream.merge(fill_value='latest') # it's safe even we only have 1 trace
         return stream
 
     def process_sac(self, sac_path):
@@ -158,11 +160,13 @@ class Magnitude:
             st.detrend('linear')
             detrend_list.extend([max(st[0].data), abs(min(st[0].data))])
         seis_type = comp[1]
+        logging.debug(f"seis type: {seis_type}")
         max_amp = max(raw_list)
         max_detrend_amp = max(detrend_list)
+        logging.debug(f"Max amp: {max_amp}, Max detrend amp: {max_detrend_amp}")
         if seis_type == 'L':
             if max_amp <= 0.1:
-                logging.info(
+                logger.warning(
                     f'Code 0: Amplitude of {station} with seis type {seis_type} <= 0.1: {max_amp}'
                 )
                 return 0
@@ -170,7 +174,7 @@ class Magnitude:
                 return 1
         elif seis_type == 'S':
             if max_amp > 1:
-                logging.info(
+                logger.warning(
                     f'Code 0: Amplitude of {station} with seis type {seis_type} > 1: {max_amp}'
                 )
                 return 0
@@ -180,7 +184,7 @@ class Magnitude:
                 return 1
         elif seis_type == 'H':
             if max_detrend_amp >= 5000000:
-                logging.info(
+                logger.warning(
                     f'Code 0: Amplitude of {station} with seis type {seis_type} >=5000000: {max_amp}'
                 )
                 return 0
@@ -189,7 +193,7 @@ class Magnitude:
             else:
                 return 1
         else:
-            logging.info(f'{station} seis_type is not correct: {comp}: {seis_type}')
+            logger.info(f'{station} seis_type is not correct: {comp}: {seis_type}')
             return 0
             # raise ValueError(f'{station} seis_type is not correct: {comp}: {seis_type}')
 
@@ -277,13 +281,14 @@ class Magnitude:
             try:
                 st = self._merge_latest(station, comp, t1, t2, tt1=tt1, tt2=tt2)
             except Exception as e:
-                logging.info(f'Error exist during process {station}: {e}')
-                logging.info(f'Error_time: around {tt1}')
+                logger.error(f'Error exist during process {station}: {e}')
+                logger.error(f'Error_time: t1: {t1}, t2: {t2}, tt1: {tt1}, tt2: {tt2}')
                 continue
             try:
                 pz_path = list(self.pz_path.glob(f'*{station}*{comp}*'))[0]
+                logger.debug(f"PZ_list: {list(self.pz_path.glob(f'*{station}*{comp}*'))}")
             except IndexError as e:
-                logging.info(f'{station} has no pz file: {e}')
+                logger.error(f'{station} has no pz file: {e}')
                 continue
             attach_paz(tr=st[0], paz_file=str(pz_path))
             st.trim(starttime=tt1, endtime=tt2)  # cut longer for simulate
@@ -305,21 +310,26 @@ class Magnitude:
         nloga = math.log10(math.sqrt(response_dict[0] ** 2 + response_dict[1] ** 2))
 
         R = math.sqrt(dist**2 + depth**2)
+
         if depth <= 35:
             if 0 <= dist <= 80:
+                # Case 2
                 dA = -0.00716 * R - math.log10(R) - 0.39
             elif dist > 80:
+                # Case 1
                 dA = -0.00261 * R - 0.83 * math.log10(R) - 1.07
         else:
+            # Case 3
             dA = -0.00326 * R - 0.83 * math.log10(R) - 1.01
 
+        logger.debug(f"nloga: {nloga}, dA: {dA}")
         return nloga - dA
 
     def get_mag(self, event_index: int, use_das=False):
         """
         Calculate suitable time window for each station in N4 determination.
         """
-        logging.info(f'Event: {event_index} started')
+        logger.info(f'Event: {event_index} started')
         df_event = self.df_h3dd_events[
             self.df_h3dd_events['h3dd_event_index'] == event_index
         ].copy()
@@ -333,13 +343,16 @@ class Magnitude:
         code_error_set = set()
         hor_comp_error_dict = {}
         for station in set(df_picks['station_id']):
+            logger.debug(f"Processing {station}...")
             if use_das and station[1].isdigit():
                 continue
             df_sta_picks = df_picks[df_picks['station_id'] == station].copy()
 
             t1, t2, tt1, tt2 = self._calculate_time_window(df_sta_picks)
+            logger.debug(f"Time window: t1: {t1}, t2: {t2}, tt1: {tt1}, tt2: {tt2}")
             # TODO: check that all time is in the same day.
             ymd, comp_list = self._check_ymd_comp(df=df_sta_picks, station=station)
+            logger.debug(f"Comp_list: {comp_list}")
             # TODO: Set a scenario is that having (E, N), (1, 2) is fine, current scenario will pass the serie like {E, N ,1, 2}
             if len(comp_list) == 2:  # ensuring we have 2 horizontal component.
                 try:
@@ -347,7 +360,7 @@ class Magnitude:
                         comp_list=comp_list, station=station, t1=t1, t2=t2
                     )
                 except Exception as e:
-                    logging.info(f'We encounter {e} in event {event_index}, to be more specific, in {station}')
+                    logger.info(f'We encounter {e} in event {event_index}, to be more specific, in {station}')
                     continue
                 if code == 0:
                     code_error_set.add(station)
@@ -364,7 +377,7 @@ class Magnitude:
                 print(f'{station}: {response_dict}')
                 actual_depth = depth + df_sta_picks['elevation'].iloc[0]
                 if response_dict:
-                    # logging.info(f'Event: {event_index}, calculating mag for {station}')
+                    # logger.info(f'Event: {event_index}, calculating mag for {station}')
                     sta_mag = self._calculate_mag(
                         response_dict=response_dict,
                         dist=float(df_sta_picks['dist'].iloc[0]),
@@ -376,13 +389,13 @@ class Magnitude:
                     )
                     sum_mag += sta_mag
                 else:
-                    logging.info(f'{station} has no response_dict: {response_dict}')
+                    logger.info(f'{station} has no response_dict: {response_dict}')
                     continue
             else:
                 hor_comp_error_dict[station] = comp_list
                 continue
-        logging.info(f'code == 0 stations for event{event_index}: {code_error_set}')
-        logging.info(
+        logger.info(f'code == 0 stations for event{event_index}: {code_error_set}')
+        logger.info(
             f'horizontal elements not enough stations for event{event_index}: {hor_comp_error_dict}'
         )
         if station_num > 0:

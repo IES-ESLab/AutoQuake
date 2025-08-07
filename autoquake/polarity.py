@@ -145,7 +145,7 @@ class DitingMotion:
         stream = stream.merge(fill_value='latest')
         return stream
 
-    def seis_get_data(self, sta_name: str, p_arrival_: str, time_window=0.64):
+    def seis_get_data(self, sta_name: str, p_arrival_: str, time_window=0.64, pretrim_window=100):
         """
         Get the 1.28 s waveform data for traning.
         """
@@ -168,6 +168,10 @@ class DitingMotion:
             return []
         try:
             preprocess_s = time.time()
+            #NOTE: It seems like we can not trim it first due to the original settings.
+            # starttime_pretrim = p_arrival - pretrim_window
+            # endtime_pretrim = p_arrival + pretrim_window
+            # st.trim(starttime=starttime_pretrim, endtime=endtime_pretrim)
             demean_s = time.time()
             st.detrend('demean')
             st.detrend('linear')
@@ -183,8 +187,11 @@ class DitingMotion:
             starttime_trim = p_arrival - time_window
             endtime_trim = p_arrival + time_window
             st.trim(starttime=starttime_trim, endtime=endtime_trim)
+            #TODO: testify the waveform
+            # st.write(f'/home/patrick/Work/AutoQuake/Case/Optimization/Polarity/pretrim/{sta_name}.SAC')
             data = st[0].data[0:128]
             trim_e = time.time()
+            # Trimming actually can be neglected
             logging.debug(f'Data trimming cost {round(trim_e - trim_s, 2)} s')
             preprocess_e = time.time()
             logging.debug(f"Preprocessing {sta_name} total cost {round(preprocess_e - preprocess_s, 2)} s")
@@ -347,7 +354,8 @@ class DitingMotion:
         logging.info(f'event index: {event_index} start processing')
 
         processed_rows = []
-        for _, row in df_selected_picks.iterrows():
+        # Because we will write polarity into row, so use iterrows but not itertuples
+        for _, row in df_selected_picks.iterrows(): 
             logging.debug(f'----------Station: {row.station_id}----------')
             df_row = self.process_row(row=row, motion_model=model_session)
             logging.debug('---------------------------------')

@@ -386,9 +386,9 @@ def pol_mag_to_dout(
     df_mag_event = pd.read_csv(magnitude_events)
     df_mag_pick = pd.read_csv(magnitude_picks)
     output_dout = output_path / f'{ori_dout.name}'
+    with open(ori_dout) as r:
+        lines = r.readlines()
     with open(output_dout, 'w') as fo:
-        with open(ori_dout) as r:
-            lines = r.readlines()
         h3dd_event_index = -1
         for line in lines:
             if line.strip().split()[-1] == '3DD':

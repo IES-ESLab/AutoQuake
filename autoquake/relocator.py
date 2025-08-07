@@ -254,7 +254,7 @@ class H3DD:
             for future in futures:
                 future.result()
 
-    def gamma2h3dd(self, chunk_size=4000):
+    def gamma2h3dd(self, chunk_size=5000):
         """
         Convert ordered event and picks into h3dd format dat_ch.
         """
@@ -263,7 +263,7 @@ class H3DD:
         self.h3dd_dir.mkdir(parents=True, exist_ok=True)
 
         # split the event if exceed 4000
-        if len(df_event) > 4000:
+        if len(df_event) > chunk_size:
             self.process_in_parallel(df_event, df_picks, chunk_size)
         else:
             output_file = self.h3dd_dir / f'{self.event_name}.dat_ch'

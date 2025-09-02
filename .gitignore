@@ -64,3 +64,32 @@ testset*
 /H3DD/cutoff_test
 /H3DD/h3dd_twice
 /autoquake/visualization
+
+# Development environment
+.vscode/
+*.egg-info/
+dist/
+build/
+
+# Development data and outputs
+data/
+outputs/
+logs/
+dev_config/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Development utilities
+setup-git.sh
+
+# IDE and editor files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db

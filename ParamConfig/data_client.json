@@ -1,0 +1,69 @@
+{
+    "IESWSConfig":{
+        "payload": {
+            "submit": "",
+            "account": "account",
+            "password": "password"
+        },
+        "output_dir": "./iesws_output/tgz",
+        "unzip_dir": "./iesws_output/data",
+        "unzip": true,
+        "starttime": "2024-04-01T00:00:00",
+        "endtime": "2024-04-02T00:00:00",
+        "fetch_data":{
+            "BATS":{
+                "HOPB":{
+                    "starttime": "2024-04-03T00:00:00",
+                    "endtime": "2024-04-04T00:00:00",
+                    "channel": "*",
+                    "location": "*",
+                    "label": "HOPB_test",
+                    "format": "sac"
+                }
+            },
+            "CWB24":[
+                "EOS2",
+                "EOS3",
+                "EOS4"
+            ],
+            "FJ-1":{
+                "PCNP":{
+                    "channel": "HH?"
+                }
+            },
+            "FJ-2":[
+                "PNTK",
+                "PTMZ"
+            ]
+        }        
+    },
+
+    "GDMSConfig":{
+        "payload": {
+            "username": "username",
+            "password": "password"
+        },
+        "output_dir": "./gdms_output/tgz",
+        "unzip_dir": "./gdms_output/data",
+        "unzip": true,
+        "starttime": "2024-04-01T00:00:00",
+        "endtime": "2024-04-02T00:00:00",
+        "fetch_data":{
+            "TSMIP":{
+                "A002":{
+                    "starttime": "2024-04-03T00:00:00",
+                    "endtime": "2024-04-04T00:00:00",
+                    "channel": "HL?",
+                    "location": "10",
+                    "label": "HOPB_test",
+                    "format": "sac"
+                }
+            },
+            "CWASN":[
+                "EOS2",
+                "EOS3",
+                "EOS4"
+            ]
+        }
+    }
+}

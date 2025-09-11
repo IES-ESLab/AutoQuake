@@ -12,6 +12,8 @@
 /script_to_tidy_up
 /Optimization
 /Case
+/test
+/PZ
 # output and some text
 
 gmt.history
@@ -23,6 +25,7 @@ gmt.history
 *.P24
 *.ps
 *.gif
+*.pth
 *gamma_config.txt
 
 

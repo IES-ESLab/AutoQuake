@@ -365,6 +365,11 @@ class PhaseNet:
         return 0
 
     def pred_phasenet_das(self, args, model, data_loader, pick_path, figure_path):
+        def pretty_meta_checker(meta: dict):
+            check_keys = [i for i in meta.keys() if i != 'data']
+            for key in check_keys:
+                logger.info(f"{key}: {meta[key]}")
+            
         model.eval()
         ctx = (
             nullcontext()
@@ -374,6 +379,7 @@ class PhaseNet:
         with torch.inference_mode():
             # for meta in metric_logger.log_every(data_loader, 1, header):
             for meta in tqdm(data_loader, desc='Predicting', total=len(data_loader)):
+                pretty_meta_checker(meta)
                 with ctx:
                     output = model(meta)
 
@@ -463,6 +469,37 @@ class PhaseNet:
                 )
 
         return 0
+    
+    @staticmethod
+    def _check_output_dir(mode, starttime, model, result_path: Path, cut_patch: bool):
+        """
+        Make sure the dir is exist or created.
+        """
+        def subdir_name(mode: str, start: str) -> str:
+            """
+            We typicaly assume that the stream and archive is executived daily.
+            """
+            if mode == "stream":
+                return start.split('T')[0].replace("-","")
+            else:
+                return start
+            
+        dir_name = subdir_name(mode, starttime)
+
+        if cut_patch:
+            pick_path = result_path / f'picks_{model}_patch' / dir_name
+            event_path = result_path / f'events_{model}_patch' / dir_name
+            figure_path = result_path / f'figures_{model}_patch' / dir_name
+            
+        else:
+            pick_path = result_path / f'picks_{model}' / dir_name
+            event_path = result_path / f'events_{model}' / dir_name
+            figure_path = result_path / f'figures_{model}' / dir_name  
+        
+        pick_path.mkdir(parents=True, exist_ok=True)
+        event_path.mkdir(parents=True, exist_ok=True)
+        figure_path.mkdir(parents=True, exist_ok=True)
+        return pick_path, event_path, figure_path
 
     def predict(self):
         """
@@ -471,9 +508,13 @@ class PhaseNet:
         Then the conversion will automatically happen in the SeismicTraceIterableDataset creation.
         """
         args = self.args
-        pick_path = str(args.pick_path)
-        event_path = str(args.event_path)
-        figure_path = str(args.figure_path)
+        pick_path, event_path, figure_path = [str(x) for x in self._check_output_dir(
+            mode=args.mode,
+            starttime=args.start,
+            model=args.model,
+            result_path=args.result_path,
+            cut_patch=args.cut_patch,
+        )]
         
         utils.init_distributed_mode(args)
 
@@ -509,10 +550,14 @@ class PhaseNet:
             torch.backends.cudnn.benchmark = True
 
         if args.model in ['phasenet', 'phasenet_plus']:
+            logger.info(args.start, args.end)
             dataset = SeismicTraceIterableDataset(
                 data_path=str(args.data_path),
                 data_list=args.data_list,
                 hdf5_file=args.hdf5_file,
+                # for streaming data
+                starttime=args.start,
+                endtime=args.end,
                 prefix=args.prefix,
                 format=args.format,
                 dataset=args.dataset,
@@ -632,6 +677,10 @@ class PhaseNet:
             self.pred_phasenet_das(args, model, data_loader, pick_path, figure_path)
         # return os.path.join(pick_path, 'picks.csv')
 
+def run_single_instance(config):
+    phasenet = PhaseNet(config)
+    phasenet.predict()
+
 def parallel_run_phasenet(configs: list, workers: int = 4):
     """
     Run multiple PhaseNet instances in parallel using multiprocessing.
@@ -640,9 +689,5 @@ def parallel_run_phasenet(configs: list, workers: int = 4):
         configs (list[PhaseNetConfig]): List of configurations for PhaseNet.
         num_workers (int): Number of parallel workers to use.
     """
-    def run_single_instance(config):
-        phasenet = PhaseNet(config)
-        phasenet.predict()
-
     with mp.Pool(processes=workers) as pool:
         pool.map(run_single_instance, configs)  

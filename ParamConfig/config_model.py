@@ -29,13 +29,14 @@ you familiar with the instantiation, you can switch it to file you want to use.
 class PhaseNetConfig(BaseModel):
     """
     Base parameters for PhaseNet (all except 'mode').
-    """
+    """ 
     start: str
     end: str
     result_path: Path
+    mode: Literal["stream", "archive"] = "archive"       
     data_path: Path | None = None
     pz_dir: Path | None = None
-    data_list: str | None = None
+    data_list: Any | None = None
     hdf5_file: str | None = None
     prefix: str = ""
     format: Literal["SAC", "h5"] = "SAC"
@@ -77,16 +78,11 @@ class PhaseNetConfig(BaseModel):
     gpu: int | None = None
     distributed: bool | None = None
     dist_bakend: str | None = None
-    # output dir
-    pick_path: Path | None = None
-    event_path: Path | None = None
-    figure_path: Path | None = None
 class PhaseNetConfigReceiver(PhaseNetConfig):
     """
     Parameters for PhaseNet (all parameters including 'mode').
     """
     data_parent_dir: Path
-    mode: Literal["stream", "archive"] = "archive"
     args_list: list[PhaseNetConfig] | None = None
     
 
@@ -95,35 +91,6 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
             response = input(f"Warning: '{self.result_path}' exists and is not empty. Overwrite? (y/n): ")
             if response.lower() != 'y':
                 raise RuntimeError("Operation cancelled by user.")
-    
-    def _check_output_dir(self):
-        """
-        Make sure the dir is exist or created.
-        """
-        def subdir_name(mode: str, start: str) -> str:
-            """
-            We typicaly assume that the stream and archive is executived daily.
-            """
-            if mode == "stream":
-                return start.split('T')[0].replace("-","")
-            else:
-                return start
-            
-        dir_name = subdir_name(self.mode, self.start)
-
-        if self.cut_patch:
-            self.pick_path = self.result_path / f'picks_{self.model}_patch' / dir_name
-            self.event_path = self.result_path / f'events_{self.model}_patch' / dir_name
-            self.figure_path = self.result_path / f'figures_{self.model}_patch' / dir_name
-            
-        else:
-            self.pick_path = self.result_path / f'picks_{self.model}' / dir_name
-            self.event_path = self.result_path / f'events_{self.model}' / dir_name
-            self.figure_path = self.result_path / f'figures_{self.model}' / dir_name  
-        
-        self.pick_path.mkdir(parents=True, exist_ok=True)
-        self.event_path.mkdir(parents=True, exist_ok=True)
-        self.figure_path.mkdir(parents=True, exist_ok=True)
 
     def _time_code_checker(self):
         stream_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"
@@ -177,10 +144,13 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
             if data_list is None:
                 all_list = list(data_path.glob(f'*{format}'))
                 data_list = []
-                for i in all_list:
-                    fname = f"{str(i).split('.D.')[0][:-1]}*"
-                    if fname not in data_list:
-                        data_list.append(fname)
+                if format == 'SAC':
+                    for i in all_list:
+                        fname = f"{str(i).split('.D.')[0][:-1]}*"
+                        if fname not in data_list:
+                            data_list.append(fname)
+                elif format == 'h5':
+                    return None
             else:
                 with open(data_list) as f:
                     data_list = f.read().splitlines()
@@ -223,7 +193,6 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         """
         self._check_result_path()
         self._time_code_checker()
-        self._check_output_dir()
         self.args_list = self.generate_configs()
         return self
     

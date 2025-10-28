@@ -4,3 +4,6 @@
 [submodule "autoquake/EQNet"]
 	path = autoquake/EQNet
 	url = ../EQNet.git
+[submodule "autoquake/DataClient"]
+	path = autoquake/DataClient
+	url = ../Fetch_data.git

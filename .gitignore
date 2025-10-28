@@ -13,11 +13,8 @@
 /script_to_tidy_up
 /Optimization
 /Case
-<<<<<<< HEAD
 /PZ
-=======
 /ParamConfig/*.json
->>>>>>> 456b7fbb8616471fa39c67c8beb945c16d9d52b5
 # output and some text
 
 gmt.history

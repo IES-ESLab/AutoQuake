@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 import numpy as np
@@ -175,7 +176,7 @@ class GaMMA:
             config['use_dbscan'] = self.use_dbscan
             if self.dbscan_eps is None:
                 config['dbscan_eps'] = estimate_eps(self.df_station, config['vel']['p'])
-                logging.info(f"DBSCAN eps: {config['dbscan_eps']}")
+                logger.info(f"DBSCAN eps: {config['dbscan_eps']}")
             else:
                 config['dbscan_eps'] = self.dbscan_eps
             config['dbscan_min_samples'] = self.dbscan_min_sample
@@ -257,7 +258,7 @@ class GaMMA:
         )
 
         proj = Proj(
-            f"+proj=sterea +lon_0={config['center'][0]} +lat_0={config['center'][1]} +units=km"
+            f"+proj=aeqd +lon_0={config['center'][0]} +lat_0={config['center'][1]} +units=km"
         )
         self.proj = proj
         self.df_station[['x(km)', 'y(km)']] = self.df_station.apply(
@@ -275,14 +276,15 @@ class GaMMA:
         else:
             raise ValueError(f'No this kind of {self.method}, please check')
 
-        vel = self._read_vel_model()
-        config['eikonal'] = {
-            'vel': vel,
-            'h': self.vel_h,
-            'xlim': config['x(km)'],
-            'ylim': config['y(km)'],
-            'zlim': config['z(km)'],
-        }
+        if self.vel_model is not None:
+            vel = self._read_vel_model()
+            config['eikonal'] = {
+                'vel': vel,
+                'h': self.vel_h,
+                'xlim': config['x(km)'],
+                'ylim': config['y(km)'],
+                'zlim': config['z(km)'],
+            }
 
         self._check_dbscan(config)
 
@@ -306,7 +308,7 @@ class GaMMA:
             self.config['method']
         )
         event_idx0 += len(events)
-        logging.info(f'event_num: {event_idx0}')
+        logger.info(f'event_num: {event_idx0}')
         ## create catalogs
         events = pd.DataFrame(events)
         events[['longitude', 'latitude']] = events.apply(
@@ -321,7 +323,7 @@ class GaMMA:
         events.to_csv(
             self.events,
             index=False,
-            float_format='%.3f',
+            float_format='%.5f', # TODO: modify it as a parameter
             date_format='%Y-%m-%dT%H:%M:%S.%f',
         )
 

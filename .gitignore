@@ -71,6 +71,10 @@ testset*
 /H3DD/h3dd_twice
 /autoquake/visualization
 
+# Documentation and AI context files
+CLAUDE.md
+GITHUB_COPILOT_CONTEXT.md
+
 # Development environment
 .vscode/
 *.egg-info/

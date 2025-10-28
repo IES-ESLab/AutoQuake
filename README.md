@@ -6,6 +6,7 @@
 
 ## Table of Contents
 - [Getting Started](#getting-started)
+- [Development Environment](#development-environment)
 - [Installation](#installation)
 - [Dataset Structure (both hdf5 for DAS and SAC for Seismometer)](#dataset-structure-both-hdf5-for-das-and-sac-for-seismometer)
 - [Usage](#usage)
@@ -73,6 +74,48 @@ If you’re interested in contributing to the development of this project, follo
 **Open a Pull Request**: Once your changes are pushed, go to the original repository on GitHub and open a Pull Request from your branch to the dev branch of the main repository.
 Read to our [Contributing](#contributing) section for more details on how to contribute to this project.       
 **Report Issues**: You can help resolving the issues.    
+
+---
+
+## Development Environment
+
+### 🚀 DevContainer Setup (Recommended for Contributors)
+We provide a complete development container that ensures all contributors work in a consistent environment:
+
+#### Quick Start
+1. **Prerequisites**: Install [Docker](https://www.docker.com/get-started), [VS Code](https://code.visualstudio.com/), and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+
+2. **Clone and open**:
+   ```bash
+   git clone --branch dev https://github.com/your-username/AutoQuake.git
+   cd AutoQuake
+   code .  # Open in VS Code
+   ```
+
+3. **Start developing**: When prompted, click "Reopen in Container" or use `Ctrl+Shift+P` → "Dev Containers: Reopen in Container"
+
+#### What's Included
+- ✅ Python 3.10 with pre-configured conda environment
+- ✅ All scientific dependencies (NumPy, ObsPy, PyTorch, etc.)
+- ✅ VS Code extensions for Python, Jupyter, and seismology
+- ✅ Code formatting tools (Black, isort, Ruff)
+- ✅ Testing framework (pytest) with coverage
+- ✅ Pre-commit hooks for code quality
+- ✅ Ready for real-time seismic data processing
+
+#### Development Commands
+```bash
+aq          # Activate AutoQuake environment
+aqtest      # Run tests with pytest
+aqformat    # Format code with Black and isort
+aqcheck     # Check code quality
+aqjupyter   # Start Jupyter Lab
+```
+
+📖 **Detailed Guide**: See [`.devcontainer/README.md`](.devcontainer/README.md) for complete documentation.
+
+---
+
 ## Installation
 This package supports both `requirements.txt` and `env.yml` for dependency management. Choose one of the following installation methods:    
 

@@ -257,7 +257,7 @@ class GaMMA:
         )
 
         proj = Proj(
-            f"+proj=sterea +lon_0={config['center'][0]} +lat_0={config['center'][1]} +units=km"
+            f"+proj=aeqd +lon_0={config['center'][0]} +lat_0={config['center'][1]} +units=km"
         )
         self.proj = proj
         self.df_station[['x(km)', 'y(km)']] = self.df_station.apply(
@@ -321,7 +321,7 @@ class GaMMA:
         events.to_csv(
             self.events,
             index=False,
-            float_format='%.3f',
+            float_format='%.5f',
             date_format='%Y-%m-%dT%H:%M:%S.%f',
         )
 

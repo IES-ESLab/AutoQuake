@@ -3,6 +3,7 @@
 /test_format
 /test/seis
 /test/das
+/test
 /test_agu
 /test_fig_dir
 /Seis_20240401_20240417
@@ -12,7 +13,11 @@
 /script_to_tidy_up
 /Optimization
 /Case
+<<<<<<< HEAD
 /PZ
+=======
+/ParamConfig/*.json
+>>>>>>> 456b7fbb8616471fa39c67c8beb945c16d9d52b5
 # output and some text
 
 gmt.history
@@ -46,6 +51,7 @@ focal_test.py
 autoquake_example.ipynb
 plot_example.ipynb
 plot.ipynb
+relocator_temp.py
 # plot.ipynb
 
 testset*

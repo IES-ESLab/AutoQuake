@@ -3,6 +3,7 @@
 /test_format
 /test/seis
 /test/das
+/test
 /test_agu
 /test_fig_dir
 /Seis_20240401_20240417
@@ -12,7 +13,6 @@
 /script_to_tidy_up
 /Optimization
 /Case
-/test
 /PZ
 /forge
 /ParamConfig/*.json
@@ -21,6 +21,7 @@
 
 gmt.history
 *.log
+*.SAC
 *.csv
 *.dout
 *.hout

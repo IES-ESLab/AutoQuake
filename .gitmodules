@@ -6,4 +6,4 @@
 	url = ../EQNet.git
 [submodule "autoquake/DataClient"]
 	path = autoquake/DataClient
-	url = https://github.com/IES-ESLab/Fetch_data.git
+	url = ../Fetch_data.git

@@ -15,6 +15,7 @@
 /Case
 /PZ
 /ParamConfig/*.json
+/toy_data
 # output and some text
 
 gmt.history
@@ -89,7 +90,7 @@ dev_config/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
+
 
 # Development utilities
 setup-git.sh

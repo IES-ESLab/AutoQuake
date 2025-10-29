@@ -51,7 +51,7 @@ class H3DD:
                 (1 = yes, 0 = no)
         """
         PROJECT_ROOT = Path(__file__).parents[1].resolve()
-        self.h3dd_dir = PROJECT_ROOT / 'H3DD'
+        self.h3dd_dir = PROJECT_ROOT / 'h3dd_1013' # temp modify
         self.h3dd_dir.mkdir(parents=True, exist_ok=True)
         self.gamma_event = gamma_event
         self.gamma_picks = gamma_picks

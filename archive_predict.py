@@ -1,13 +1,14 @@
 #%%
 import json
 import logging
+import logging.config
 from pathlib import Path
 from autoquake.picker import parallel_run_phasenet
 from ParamConfig.config_model import MainConfig
 
 # Path of config file
 LOG_CONFIG = Path(__file__).parents[0].resolve() / 'log' / 'config.json'
-PARAM_CONFIG = Path(__file__).parents[0].resolve() / 'ParamConfig' / 'params.json'
+PARAM_CONFIG = Path(__file__).parents[0].resolve() / 'ParamConfig' / 'params_stream.json'
 FETCH_CONFIG = Path(__file__).parents[0].resolve() / 'ParamConfig' / 'data_client.json'
 
 def setup_logging():
@@ -26,7 +27,7 @@ if __name__ == '__main__':
     
     logging.info('Running PhaseNet...')
     phasenet_config_list = config.PhaseNet.args_list
-    parallel_run_phasenet(phasenet_config_list)
+    parallel_run_phasenet(phasenet_config_list, workers=1) # because we can not fetch the data parallelly
 
 
 

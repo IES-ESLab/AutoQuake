@@ -14,6 +14,9 @@
 /Case
 /test
 /PZ
+/forge
+/ParamConfig/*.json
+/h3dd_1013
 # output and some text
 
 gmt.history
@@ -44,8 +47,13 @@ tutorial.ipynb
 aso.py
 focal_test.py
 autoquake_example.ipynb
+relocator_temp.py
 plot_example.ipynb
 plot.ipynb
+run_*
+data_clinet_test.json
+params_stream_test.json
+params_test.json
 # plot.ipynb
 
 testset*

@@ -371,7 +371,6 @@ def index_h3dd2gamma(df_table: pd.DataFrame, h3dd_index: int):
 def pol_mag_to_dout(
     ori_dout: Path,
     result_path: Path,
-    df_reorder_event: pd.DataFrame,
     polarity_picks: Path,
     magnitude_events: Path,
     magnitude_picks: Path,
@@ -379,9 +378,8 @@ def pol_mag_to_dout(
 ):
     """
     Combining polarity and magnitude information into dout.
+    #NOTE: Your polarity and magnitude csv must contain h3dd_event_index column.
     """
-    df_table = get_index_table(df=df_reorder_event)
-
     df_pol = pd.read_csv(polarity_picks)
     df_mag_event = pd.read_csv(magnitude_events)
     df_mag_pick = pd.read_csv(magnitude_picks)
@@ -414,8 +412,8 @@ def pol_mag_to_dout(
                 try:
                     polarity = df_pol[
                         (
-                            df_pol['event_index']
-                            == index_h3dd2gamma(df_table, h3dd_event_index)
+                            df_pol['h3dd_event_index']
+                            == h3dd_event_index
                         )
                         & (df_pol['station_id'] == station)
                     ]['polarity'].iloc[0]

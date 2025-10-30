@@ -11,15 +11,13 @@ conda activate AutoQuake_v0
 # Verify environment activation
 echo "📦 Active conda environment: $CONDA_DEFAULT_ENV"
 
-# Install development dependencies
+# Install development dependencies (ipykernel and jupyterlab already in env-codespace.yml)
 echo "🔧 Installing development tools..."
-conda install -c conda-forge -y \
+pip install --no-cache-dir \
     black \
     isort \
     flake8 \
-    pre-commit \
-    ipykernel \
-    jupyterlab
+    pre-commit
 
 # Install the AutoQuake package in development mode
 echo "📥 Installing AutoQuake in development mode..."

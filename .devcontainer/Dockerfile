@@ -52,13 +52,18 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && mkdir -p /home/$USERNAME/.vscode-server /home/$USERNAME/.vscode-server-insiders \
     && chown ${USER_UID}:${USER_GID} /home/$USERNAME/.vscode-server*
 
-# Copy environment files
-COPY env.yml /tmp/env.yml
+# Copy environment files (use lightweight env-codespace.yml for Codespaces)
+COPY env-codespace.yml /tmp/env.yml
 COPY requirements.txt /tmp/requirements.txt
 
-# Create conda environment with mamba for faster installation
+# Create conda environment with mamba and aggressive cleanup to save space
 RUN mamba env create -f /tmp/env.yml && \
-    mamba clean --all -f -y
+    mamba clean --all -f -y && \
+    conda clean --all -f -y && \
+    rm -rf /opt/conda/pkgs/* && \
+    rm -rf /tmp/* && \
+    find /opt/conda/envs/AutoQuake_v0 -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /opt/conda/envs/AutoQuake_v0 -name '*.pyc' -delete 2>/dev/null || true
 
 # Initialize conda for the user
 RUN echo "source /opt/conda/etc/profile.d/conda.sh" >> /home/$USERNAME/.bashrc && \

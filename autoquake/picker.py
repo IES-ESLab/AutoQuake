@@ -53,11 +53,8 @@ class PhaseNet:
         """
         self.args = args
 
-    def get_picks(self):
-        return self.picks
-
     @staticmethod
-    def concat_picks(date_list: list, result_path: Path, model: str, dir_name: str):
+    def concat_picks(date_list: list, result_path: Path, model: Literal['phasenet', 'phasenet_das', 'phasenet_plus'] = 'phasenet'):
         """## Concatenate daily picks to a single csv file.
 
         There exists 2 scenario:
@@ -90,12 +87,14 @@ class PhaseNet:
                     concat_list.append(df)
 
         result = pd.concat(concat_list)
-        date_dir = result_path / f'picks_{model}' / dir_name
-        date_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = result_path / f'picks_{model}' 
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / 'picks.csv'
         result.to_csv(
-            date_dir / 'picks.csv',
+            output_path,
             index=False,
         )
+        return output_path
 
     @staticmethod
     def picking_filter(picks: Path, filt_station: Path, output_dir: Path | None = None):
@@ -690,4 +689,18 @@ def parallel_run_phasenet(configs: list, workers: int = 4):
         num_workers (int): Number of parallel workers to use.
     """
     with mp.Pool(processes=workers) as pool:
-        pool.map(run_single_instance, configs)  
+        pool.map(run_single_instance, configs)
+
+def run_predict(configs: list[PhaseNetConfig]):
+    """
+    Run PhaseNet predictions based on the provided configurations.
+
+    Args:
+        configs (list[PhaseNetConfig]): List of configurations for PhaseNet.
+    """
+    if len(configs) == 1:
+        run_single_instance(configs[0])
+    else:
+        # parallel_run_phasenet(configs, workers=min(len(configs), os.cpu_count()))
+        for config in configs:
+            run_single_instance(config)

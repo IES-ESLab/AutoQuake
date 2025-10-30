@@ -352,6 +352,8 @@ def get_index_table(df: pd.DataFrame) -> pd.DataFrame:
     if 'h3dd_event_index' in df.columns:
         df_table = df.loc[:, ['event_index', 'h3dd_event_index']]
     else:
+        df = df.sort_values(by='time', key=lambda x: pd.to_datetime(x))
+        df = df.reset_index(drop=True)
         df['h3dd_event_index'] = df.index
         df_table = df.loc[:, ['event_index', 'h3dd_event_index']]
     assert isinstance(df_table, pd.DataFrame)
@@ -371,7 +373,7 @@ def index_h3dd2gamma(df_table: pd.DataFrame, h3dd_index: int):
 def pol_mag_to_dout(
     ori_dout: Path,
     result_path: Path,
-    df_reorder_event: pd.DataFrame,
+    gamma_event: Path,
     polarity_picks: Path,
     magnitude_events: Path,
     magnitude_picks: Path,
@@ -380,7 +382,7 @@ def pol_mag_to_dout(
     """
     Combining polarity and magnitude information into dout.
     """
-    df_table = get_index_table(df=df_reorder_event)
+    df_table = get_index_table(df=pd.read_csv(gamma_event))
 
     df_pol = pd.read_csv(polarity_picks)
     df_mag_event = pd.read_csv(magnitude_events)

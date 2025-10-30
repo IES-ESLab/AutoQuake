@@ -52,9 +52,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && mkdir -p /home/$USERNAME/.vscode-server /home/$USERNAME/.vscode-server-insiders \
     && chown ${USER_UID}:${USER_GID} /home/$USERNAME/.vscode-server*
 
-# Create workspace directory
-RUN mkdir -p /workspace && chown ${USER_UID}:${USER_GID} /workspace
-
 # Copy environment files
 COPY env.yml /tmp/env.yml
 COPY requirements.txt /tmp/requirements.txt
@@ -70,8 +67,8 @@ RUN echo "source /opt/conda/etc/profile.d/conda.sh" >> /home/$USERNAME/.bashrc &
 # Switch to non-root user
 USER $USERNAME
 
-# Set working directory
-WORKDIR /workspace
+# Set working directory to user home (Codespaces will override this with the actual workspace)
+WORKDIR /home/$USERNAME
 
 # Set the default shell to bash
 SHELL ["/bin/bash", "-c"]

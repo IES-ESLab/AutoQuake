@@ -69,6 +69,9 @@ python -c "import autoquake; print('AutoQuake loaded successfully')"  # Test Aut
 
 ## 📁 Project Structure
 
+**GitHub Codespaces:** The repository is automatically mounted to `/workspaces/AutoQuake`
+**Local Dev Containers:** The repository is mounted to your local project directory
+
 ```
 AutoQuake/
 ├── .devcontainer/           # Development container configuration

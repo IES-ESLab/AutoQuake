@@ -104,7 +104,5 @@
 	},
 	"postCreateCommand": ".devcontainer/post-create.sh",
 	"postStartCommand": "conda activate AutoQuake_v0",
-	"remoteUser": "vscode",
-	"workspaceFolder": "/workspace",
-	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+	"remoteUser": "vscode"
 }

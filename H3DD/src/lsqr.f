@@ -1076,7 +1076,9 @@ c
       subroutine aprod(MODE,M,N,X,Y,a,b,c,d)
       use all
       Implicit real*8 (a-h,o-z)
-      integer MODE,M,N
+      integer MODE,M,N,a,b
+      integer c(*)
+      real*8  d(*)
       real*8  ra(8*numberob)
       integer ja(8*numberob)
       integer na(numberob) 

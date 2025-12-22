@@ -5,7 +5,7 @@ from pathlib import Path
 from autoquake.associator import GaMMA
 from autoquake.focal import GAfocal
 from autoquake.magnitude import Magnitude
-from autoquake.picker import PhaseNet
+from autoquake.picker import PhaseNet, run_predict
 from autoquake.polarity import DitingMotion
 from autoquake.relocator import H3DD
 from autoquake.utils import gamma_preprocessing, pol_mag_to_dout, process_for_h3dd_twice
@@ -32,18 +32,15 @@ if __name__ == '__main__':
     )
     
     logging.info('Running PhaseNet...')
-    phasenet = PhaseNet(
-        data_parent_dir=config.PhaseNet.sac_parent_dir,
-        start_ymd=config.PhaseNet.startdate,
-        end_ymd=config.PhaseNet.enddate,
-        result_path=config.result_path,
-        pz_dir=config.PhaseNet.pz_dir, # optional, using it for amplitude that remove the sensitivity.
+    run_predict(config.PhaseNet.args_list)
+    phase_picks = PhaseNet.concat_picks(
+        date_list=config.PhaseNet.date_list,
+        result_path=config.result_path
     )
-    phasenet.run_predict()
 
     logging.info('Running GaMMA...')
     post_phasenet_pickings = gamma_preprocessing(
-        pickings=phasenet.get_picks(),
+        pickings=phase_picks,
         output_dir=config.result_path
     )
     

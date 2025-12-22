@@ -8,12 +8,10 @@ if [[ $PARENT_URL == https* ]]; then
     echo "Using HTTPS for submodules..."
     git config submodule.autoquake/GaMMA.url https://github.com/IES-ESLab/GaMMA.git
     git config submodule.autoquake/EQNet.url https://github.com/IES-ESLab/EQNet.git
-    git config submodule.autoquake/DataClient.url https://github.com/IES-ESLab/Fetch_data.git
 else
     echo "Using SSH for submodules..."
     git config submodule.autoquake/GaMMA.url git@github.com:IES-ESLab/GaMMA.git
     git config submodule.autoquake/EQNet.url git@github.com:IES-ESLab/EQNet.git
-    git config submodule.autoquake/DataClient.url git@github.com:IES-ESLab/Fetch_data.git
 fi
 
 # Initialize and update the submodules

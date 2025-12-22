@@ -470,7 +470,7 @@ class PhaseNet:
         return 0
     
     @staticmethod
-    def _check_output_dir(mode, starttime, model, result_path: Path, cut_patch: bool):
+    def _check_output_dir(starttime, model, result_path: Path, cut_patch: bool, mode="archive"):
         """
         Make sure the dir is exist or created.
         """
@@ -508,7 +508,6 @@ class PhaseNet:
         """
         args = self.args
         pick_path, event_path, figure_path = [str(x) for x in self._check_output_dir(
-            mode=args.mode,
             starttime=args.start,
             model=args.model,
             result_path=args.result_path,

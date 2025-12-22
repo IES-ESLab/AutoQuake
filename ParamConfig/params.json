@@ -1,7 +1,6 @@
 {
     "result_path": "./tester",
     "PhaseNet": {
-        "mode": "archive",
         "data_parent_dir": "test\\less_dataset",
         "result_path": "\\archive_results",
         "start": "20240402",

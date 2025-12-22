@@ -33,7 +33,6 @@ class PhaseNetConfig(BaseModel):
     start: str
     end: str
     result_path: Path
-    mode: Literal["stream", "archive"] = "archive"       
     data_path: Path | None = None
     pz_dir: Path | None = None
     data_list: Any | None = None
@@ -84,7 +83,7 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     """
     data_parent_dir: Path
     args_list: list[PhaseNetConfig] | None = None
-    
+    date_list: list[str] | None = None  # New attribute to store the list of dates
 
     def _check_result_path(self):
         if self.result_path.exists() and any(self.result_path.iterdir()):
@@ -93,43 +92,55 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
                 raise RuntimeError("Operation cancelled by user.")
 
     def _time_code_checker(self):
-        stream_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"
+        # stream_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"
         archive_pattern = r"^\d{8}$"
-        if self.mode == "stream":
-            if not (re.match(stream_pattern, self.start) and re.match(stream_pattern, self.end)):
-                raise ValueError(
-                    "For 'stream' mode, startdate and enddate must be in format 'YYYY-MM-DDTHH:MM:SS', e.g., '2024-04-02T00:00:00'."
-                )
-        elif self.mode == "archive":
-            if not (re.match(archive_pattern, self.start) and re.match(archive_pattern, self.end)):
-                raise ValueError(
-                    "For 'archive' mode, startdate and enddate must be in format 'YYYYMMDD', e.g., '20240402'."
-                )
-        else:
-            raise ValueError(f"Unknown mode '{self.mode}'. Supported modes are 'stream' and 'archive'.")
-        
-    def _convert_stream_configs(self, interval=24) -> list[PhaseNetConfig]:
+        # if self.mode == "stream":
+        #     if not (re.match(stream_pattern, self.start) and re.match(stream_pattern, self.end)):
+        #         raise ValueError(
+        #             "For 'stream' mode, startdate and enddate must be in format 'YYYY-MM-DDTHH:MM:SS', e.g., '2024-04-02T00:00:00'."
+        #         )
+        # elif self.mode == "archive":
+        if not (re.match(archive_pattern, self.start) and re.match(archive_pattern, self.end)):
+            raise ValueError(
+                "For 'archive' mode, startdate and enddate must be in format 'YYYYMMDD', e.g., '20240402'."
+            )
+        # else:
+        #     raise ValueError(f"Unknown mode '{self.mode}'. Supported modes are 'stream' and 'archive'.")
+    def _generate_date_list(self):
         """
-        Divide the period from startdate to enddate into intervals (default 24 hrs),
-        and return a list of PhaseNetConfig objects with updated startdate and enddate.
-        Only startdate and enddate are replaced in each iteration.
+        Generate a list of dates between start and end in 'YYYYMMDD' format.
         """
-        start = datetime.strptime(self.start, "%Y-%m-%dT%H:%M:%S")
-        end = datetime.strptime(self.end, "%Y-%m-%dT%H:%M:%S")
-        configs = []
+        start_date = datetime.strptime(self.start, '%Y%m%d')
+        end_date = datetime.strptime(self.end, '%Y%m%d')
+        date_list = []
+        current_date = start_date
+        while current_date < end_date:
+            date_list.append(current_date.strftime('%Y%m%d'))
+            current_date += timedelta(days=1)
+        return date_list
 
-        current = start
-        base_config = self.model_dump()
-        while current < end:
-            next_time = min(current + timedelta(hours=interval), end)
-            config_kwargs = base_config.copy()
-            config_kwargs['start'] = current.strftime("%Y-%m-%dT%H:%M:%S")
-            config_kwargs['end'] = next_time.strftime("%Y-%m-%dT%H:%M:%S")
-            config = PhaseNetConfig(**{k: config_kwargs[k] for k in PhaseNetConfig.model_fields.keys()})
-            configs.append(config)
-            current = next_time
+    # def _convert_stream_configs(self, interval=24) -> list[PhaseNetConfig]:
+    #     """
+    #     Divide the period from startdate to enddate into intervals (default 24 hrs),
+    #     and return a list of PhaseNetConfig objects with updated startdate and enddate.
+    #     Only startdate and enddate are replaced in each iteration.
+    #     """
+    #     start = datetime.strptime(self.start, "%Y-%m-%dT%H:%M:%S")
+    #     end = datetime.strptime(self.end, "%Y-%m-%dT%H:%M:%S")
+    #     configs = []
 
-        return configs
+    #     current = start
+    #     base_config = self.model_dump()
+    #     while current < end:
+    #         next_time = min(current + timedelta(hours=interval), end)
+    #         config_kwargs = base_config.copy()
+    #         config_kwargs['start'] = current.strftime("%Y-%m-%dT%H:%M:%S")
+    #         config_kwargs['end'] = next_time.strftime("%Y-%m-%dT%H:%M:%S")
+    #         config = PhaseNetConfig(**{k: config_kwargs[k] for k in PhaseNetConfig.model_fields.keys()})
+    #         configs.append(config)
+    #         current = next_time
+
+    #     return configs
 
     def _convert_archive_configs(self, interval=1):
         """
@@ -176,10 +187,10 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         return configs
             
     def generate_configs(self):
-        if self.mode == "stream":
-            return self._convert_stream_configs()
-        else:
-            return self._convert_archive_configs()
+        # if self.mode == "stream":
+        #     return self._convert_stream_configs()
+        # else:
+        return self._convert_archive_configs()
 
     @model_validator(mode="after")
     def post_validation(self):
@@ -188,11 +199,13 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         Here we do several validations, including: \n
         - result path \n
         - time format \n
-        Also we generate a new parameters: \n
-        - args_list 
+        Also we generate new parameters: \n
+        - args_list \n
+        - date_list
         """
         self._check_result_path()
         self._time_code_checker()
+        self.date_list = self._generate_date_list()  # Generate the date list
         self.args_list = self.generate_configs()
         return self
     

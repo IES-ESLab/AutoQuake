@@ -480,3 +480,66 @@ def pol_to_dout(
                 )
     os.system(f"cp {output_dout} {result_path}")
     return ori_dout.name
+
+def pol_mag_to_dout_acc(
+    ori_dout: Path,
+    result_path: Path,
+    polarity_picks: Path,
+    magnitude_events: Path,
+    magnitude_picks: Path,
+    output_path=GAFOCAL_DIR,
+):
+    """
+    Combining polarity and magnitude information into dout.
+    """
+    df_pol = pd.read_csv(polarity_picks)
+    df_mag_event = pd.read_csv(magnitude_events)
+    df_mag_pick = pd.read_csv(magnitude_picks)
+    output_dout = output_path / f'{ori_dout.name}'
+    with open(ori_dout) as r:
+        lines = r.readlines()
+    with open(output_dout, 'w') as fo:
+        h3dd_event_index = -1
+        for line in lines:
+            if line.strip().split()[-1] == '3DD':
+                h3dd_event_index += 1
+                event_mag = round(
+                    df_mag_event[
+                        df_mag_event['h3dd_event_index'] == h3dd_event_index
+                    ]['magnitude'].iloc[0],
+                    2,
+                )
+
+                fo.write(f'{line[:40]}{event_mag:4.2f}{line[44:]}')
+            elif line[35:39] == '1.00':
+                station = line[:5].strip()
+                sta_mag = round(
+                    df_mag_pick[
+                        (df_mag_pick['h3dd_event_index'] == h3dd_event_index)
+                        & (df_mag_pick['station_id'] == station)
+                    ]['magnitude'].iloc[0],
+                    2,
+                )
+                #TODO: There might exist the waveform skip in polarity process, find out why.
+                try:
+                    polarity = df_pol[
+                        (
+                            df_pol['h3dd_event_index'] == h3dd_event_index
+                        )
+                        & (df_pol['station_id'] == station)
+                    ]['polarity'].iloc[0]
+                except IndexError as e:
+                    polarity = 'x'
+                    # logging.info(f'H3DD event_{h3dd_event_index}: {station} no polarity picks {e}')
+                if polarity == 'U':
+                    polarity = '+'
+                elif polarity == 'D':
+                    polarity = '-'
+                else:
+                    polarity = ' '
+
+                fo.write(
+                    f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 {sta_mag:4.2f} 0   0.0\n'
+                )
+    os.system(f"cp {output_dout} {result_path}")
+    return ori_dout.name

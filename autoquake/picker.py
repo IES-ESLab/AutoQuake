@@ -554,8 +554,8 @@ class PhaseNet:
                 data_list=args.data_list,
                 hdf5_file=args.hdf5_file,
                 # for streaming data
-                starttime=args.start,
-                endtime=args.end,
+                # starttime=args.start,
+                # endtime=args.end,
                 prefix=args.prefix,
                 format=args.format,
                 dataset=args.dataset,

@@ -4,4 +4,4 @@
 [submodule "autoquake/EQNet"]
 	path = autoquake/EQNet
 	url = ../EQNet.git
-	branch = master
+	branch = feature-polarity

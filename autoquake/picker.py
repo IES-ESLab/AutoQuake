@@ -122,24 +122,35 @@ class PhaseNet:
             output_dir = picks.parent
         df_picks.to_csv(output_dir / 'check_picks.csv', index=False)
 
-    def postprocess(self, meta, output, polarity_scale=1, event_scale=16):
+    def postprocess(self, meta, output, polarity_scale=1, event_scale=16, spectrogram_scale=4):
         nt, nx = meta['nt'], meta['nx']
-        data = meta['data'][:, :, :nt, :nx]
-        # data = moving_normalize(data)
+        # Handle batch dimension for nt/nx
+        try:
+            assert torch.all(nt == nt[0])
+            assert torch.all(nx == nx[0])
+            nt, nx = nt[0], nx[0]
+        except:
+            pass
+        # New dimension ordering: [batch, channel, nx, nt]
+        data = meta['data'][:, :, :nx, :nt]
         meta['data'] = data
         if 'phase' in output:
-            output['phase'] = output['phase'][:, :, :nt, :nx]
+            output['phase'] = output['phase'][:, :, :nx, :nt]
         if 'polarity' in output:
             output['polarity'] = output['polarity'][
-                :, :, : (nt - 1) // polarity_scale + 1, :nx
+                :, :, :nx, : (nt - 1) // polarity_scale + 1
             ]
         if 'event_center' in output:
             output['event_center'] = output['event_center'][
-                :, :, : (nt - 1) // event_scale + 1, :nx
+                :, :, :nx, : (nt - 1) // event_scale + 1
             ]
         if 'event_time' in output:
             output['event_time'] = output['event_time'][
-                :, :, : (nt - 1) // event_scale + 1, :nx
+                :, :, :nx, : (nt - 1) // event_scale + 1
+            ]
+        if 'spectrogram' in output:
+            output['spectrogram'] = output['spectrogram'][
+                :, :, :, : (nt - 1) // spectrogram_scale + 1
             ]
         return meta, output
 
@@ -242,10 +253,11 @@ class PhaseNet:
                 if 'phase' in output:
                     phase_scores = torch.softmax(
                         output['phase'], dim=1
-                    )  # [batch, nch, nt, nsta]
+                    )  # [batch, nch, nx, nt]
                     if 'polarity' in output:
-                        # polarity_scores = torch.sigmoid(output["polarity"])
-                        polarity_scores = torch.softmax(output['polarity'], dim=1)
+                        polarity_scores = torch.sigmoid(output['polarity'])
+                    else:
+                        polarity_scores = None
                     topk_phase_scores, topk_phase_inds = detect_peaks(
                         phase_scores,
                         vmin=args.min_prob,
@@ -553,12 +565,8 @@ class PhaseNet:
                 data_path=str(args.data_path),
                 data_list=args.data_list,
                 hdf5_file=args.hdf5_file,
-                # for streaming data
-                # starttime=args.start,
-                # endtime=args.end,
                 prefix=args.prefix,
                 format=args.format,
-                dataset=args.dataset,
                 training=False,
                 sampling_rate=args.sampling_rate,
                 highpass_filter=args.highpass_filter,
@@ -606,8 +614,7 @@ class PhaseNet:
         )
         model = models.__dict__[args.model].build_model(
             backbone=args.backbone,
-            in_channels=1,
-            out_channels=(len(args.phases) + 1),
+            window_attention=getattr(args, 'window_attention', False),
         )
         # logger.info(f'Model:\n{model}')
 
@@ -616,7 +623,8 @@ class PhaseNet:
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
         if args.resume:
-            checkpoint = torch.load(args.resume, map_location='cpu')
+            logger.info(f'Loading checkpoint: {args.resume}')
+            checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
             # model.load_state_dict(checkpoint["model"], strict=True)
             # print("Loaded checkpoint '{}' (epoch {})".format(self.args.resume, checkpoint["epoch"]))
         else:
@@ -625,7 +633,12 @@ class PhaseNet:
                     model_url = 'https://github.com/AI4EPS/models/releases/download/PhaseNet-v1/model_99.pth'
             elif args.model == 'phasenet_plus':
                 if args.location is None:
-                    model_url = 'https://github.com/AI4EPS/models/releases/download/PhaseNet-Plus-v1/model_99.pth'
+                    if args.backbone == 'unet':
+                        model_url = 'https://github.com/AI4EPS/models/releases/download/PhaseNet-Plus-UNet-v1/model_99.pth'
+                    elif args.backbone == 'xunet':
+                        model_url = 'https://github.com/AI4EPS/models/releases/download/PhaseNet-Plus-XUNet-v0/model_99.pth'
+                    else:
+                        raise ValueError(f"Backbone '{args.backbone}' not supported for PhaseNet Plus")
                 elif args.location == 'LCSN':
                     model_url = 'https://github.com/AI4EPS/models/releases/download/PhaseNet-Plus-LCSN/model_99.pth'
             elif args.model == 'phasenet_das':
@@ -654,6 +667,13 @@ class PhaseNet:
             #     checkpoint = torch.load(glob(os.path.join(artifact_dir, "*.pth"))[0], map_location="cpu")
             #     model.load_state_dict(checkpoint["model"], strict=True)
 
+        # Load model state dict BEFORE DDP setup
+        model.load_state_dict(checkpoint['model'], strict=True)
+
+        # Use torch.compile for window_attention models
+        if getattr(args, 'window_attention', False):
+            model = torch.compile(model)
+
         model_without_ddp = model
         if args.distributed:
             torch.distributed.barrier()
@@ -661,7 +681,6 @@ class PhaseNet:
                 model, device_ids=[args.gpu]
             )
             model_without_ddp = model.module
-        model_without_ddp.load_state_dict(checkpoint['model'], strict=True)
 
         if args.model == 'phasenet':
             self.pred_phasenet(args, model, data_loader, pick_path, figure_path)

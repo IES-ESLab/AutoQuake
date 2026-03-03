@@ -39,6 +39,7 @@ class PhaseNetConfig(BaseModel):
     hdf5_file: str | None = None
     prefix: str = ""
     format: Literal["SAC", "h5"] = "SAC"
+    dataset: Literal["das", "seismic"] = "das"
     model: Literal["phasenet", "phasenet_plus", "phasenet_das"] = "phasenet"
     resume: str = ""
     backbone: str = "unet"
@@ -52,11 +53,10 @@ class PhaseNetConfig(BaseModel):
     dist_url: str = "env://"
     plot_figure: bool = False
     min_prob: float = 0.3
-    window_attention: bool = False
     add_polarity: bool = False
     add_event: bool = True
     sampling_rate: float = 100.0
-    highpass_filter: float | None = None
+    highpass_filter: float = 0.0
     response_path: str | None = None
     response_xml: str | None = None
     subdir_level: int = 0

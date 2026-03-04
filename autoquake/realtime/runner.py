@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -16,7 +15,10 @@ from .associator import RealtimeGaMMA
 from .buffers import PickBuffer
 from .config import RealtimeConfig
 from .event_validator import EventValidator
+from .focal import RealtimeFocalMechanism
+from .magnitude import RealtimeMagnitude
 from .publisher import JSONPublisher
+from .relocator import RealtimeRelocator
 from .simulators import PickStreamSimulator
 
 if TYPE_CHECKING:
@@ -95,6 +97,36 @@ class RealtimeRunner:
             max_sigma11=self.config.max_sigma11,
         )
 
+        # Relocator (H3DD)
+        self.relocator = None
+        if self.config.enable_relocation and self.config.model_3d:
+            self.relocator = RealtimeRelocator(
+                station_file=self.config.station_file,
+                model_3d=self.config.model_3d,
+                h3dd_dir=self.config.h3dd_dir,
+            )
+            logger.info('H3DD relocator initialized')
+
+        # Magnitude estimator
+        self.magnitude_estimator = None
+        if self.config.enable_magnitude:
+            self.magnitude_estimator = RealtimeMagnitude(
+                station_info=self.config.station_file,
+                pz_dir=self.config.pz_dir,
+                use_wa_simulation=self.config.use_wa_simulation,
+            )
+            logger.info('Magnitude estimator initialized')
+
+        # Focal mechanism estimator
+        self.focal_estimator = None
+        if self.config.enable_focal:
+            self.focal_estimator = RealtimeFocalMechanism(
+                gafocal_dir=self.config.gafocal_dir,
+                station_info=self.config.station_file,
+                min_polarities=self.config.min_polarities,
+            )
+            logger.info('Focal mechanism estimator initialized')
+
         logger.info('Realtime system components initialized')
 
     def run_simulation(
@@ -141,6 +173,7 @@ class RealtimeRunner:
                     logger.info(f'Detected {len(events)} events')
 
                 # Check duration limit
+                #TODO: This is not logical, earthquake might not happen continuously.
                 if max_duration and (time.time() - start_time) > max_duration:
                     logger.info(f'Reached max duration of {max_duration}s')
                     break
@@ -206,6 +239,78 @@ class RealtimeRunner:
         """
         return self.associator.check_and_process()
 
+    def refine_event(
+        self,
+        event: dict,
+        picks: list[dict],
+    ) -> dict:
+        """
+        Refine event with relocation, magnitude, and focal mechanism.
+
+        Applies relocation, magnitude estimation, and focal mechanism
+        determination to a validated event.
+
+        Args:
+            event: Event dictionary from GaMMA
+            picks: Associated picks for the event
+
+        Returns:
+            Enhanced event with relocation, magnitude, and focal mechanism
+        """
+        result = event.copy()
+
+        # Stage 1: Preliminary magnitude (quick estimate)
+        if self.magnitude_estimator:
+            try:
+                prelim_mag = self.magnitude_estimator.estimate_preliminary(event, picks)
+                if prelim_mag is not None:
+                    result['magnitude_preliminary'] = round(prelim_mag, 2)
+                    logger.debug(f'Preliminary magnitude: {prelim_mag:.2f}')
+            except Exception as e:
+                logger.warning(f'Preliminary magnitude failed: {e}')
+
+        # Stage 2: Relocation (H3DD)
+        relocated_event = None
+        if self.relocator:
+            try:
+                relocated = self.relocator.relocate_single(event, picks)
+                if relocated:
+                    relocated_event = relocated
+                    result['latitude_relocated'] = relocated['latitude']
+                    result['longitude_relocated'] = relocated['longitude']
+                    result['depth_km_relocated'] = relocated['depth_km']
+                    result['time_relocated'] = relocated['time']
+                    logger.debug(f'Relocated to {relocated["latitude"]:.4f}, {relocated["longitude"]:.4f}')
+            except Exception as e:
+                logger.warning(f'Relocation failed: {e}')
+
+        # Stage 3: Accurate magnitude using relocated position
+        if self.magnitude_estimator:
+            try:
+                # Use relocated event if available, otherwise original
+                event_for_mag = relocated_event or event
+                accurate_mag = self.magnitude_estimator.estimate_from_relocation(
+                    event_for_mag, picks
+                )
+                if accurate_mag is not None:
+                    result['magnitude'] = round(accurate_mag, 2)
+                    logger.debug(f'Final magnitude: {accurate_mag:.2f}')
+            except Exception as e:
+                logger.warning(f'Magnitude estimation failed: {e}')
+
+        # Stage 4: Focal mechanism
+        if self.focal_estimator:
+            try:
+                event_for_focal = relocated_event or event
+                focal = self.focal_estimator.estimate(event_for_focal, picks)
+                if focal:
+                    result['focal_mechanism'] = focal
+                    logger.debug(f'Focal: strike={focal["strike"]:.1f}, dip={focal["dip"]:.1f}, rake={focal["rake"]:.1f}')
+            except Exception as e:
+                logger.warning(f'Focal mechanism failed: {e}')
+
+        return result
+
     def stop(self) -> None:
         """Stop the runner."""
         self._running = False
@@ -213,7 +318,7 @@ class RealtimeRunner:
 
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
-        def handler(signum, frame):
+        def handler(signum, _frame):
             logger.info(f'Received signal {signum}')
             self.stop()
 
@@ -231,10 +336,20 @@ class RealtimeRunner:
     @property
     def stats(self) -> dict:
         """Get runner statistics."""
-        return {
+        stats = {
             'running': self._running,
             'associator': self.associator.stats,
         }
+
+        # Refinement component stats
+        if self.relocator:
+            stats['relocator'] = self.relocator.stats
+        if self.magnitude_estimator:
+            stats['magnitude'] = self.magnitude_estimator.stats
+        if self.focal_estimator:
+            stats['focal'] = self.focal_estimator.stats
+
+        return stats
 
 
 def run_simulation_from_config(

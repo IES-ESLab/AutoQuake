@@ -194,19 +194,109 @@ class WaveformBuffer:
     Ring buffer for continuous waveform data.
 
     This buffer manages incoming waveform data from multiple stations
-    and provides data for phase picking.
+    and provides data for phase picking. Supports both raw sample addition
+    and obspy Stream ingestion.
 
     Attributes:
         duration: Duration of waveform to keep in buffer
         sampling_rate: Sampling rate in Hz
+        min_samples: Minimum samples required for a valid window
     """
 
     duration: timedelta = field(default_factory=lambda: timedelta(seconds=60))
     sampling_rate: float = 100.0
+    min_samples: int = 1000
 
-    # Internal state: station_id -> (timestamps, data)
+    # Internal state: station_id -> numpy array [3, samples]
     _buffers: dict = field(default_factory=dict)
+    _start_times: dict = field(default_factory=dict)
     _last_update: dict = field(default_factory=dict)
+
+    def add_stream(self, stream) -> None:
+        """
+        Add data from an obspy Stream object.
+
+        Args:
+            stream: obspy.Stream with waveform data
+        """
+        import numpy as np
+        from collections import defaultdict
+
+        # Group traces by station
+        station_traces = defaultdict(list)
+        for trace in stream:
+            # Extract station ID (network.station.location)
+            station_id = f"{trace.stats.network}.{trace.stats.station}.{trace.stats.location}"
+            station_traces[station_id].append(trace)
+
+        comp2idx = {'3': 0, '2': 1, '1': 2, 'E': 0, 'N': 1, 'Z': 2}
+
+        for station_id, traces in station_traces.items():
+            # Determine time range
+            start_time = min(tr.stats.starttime for tr in traces)
+            end_time = max(tr.stats.endtime for tr in traces)
+            npts = int((end_time - start_time) * self.sampling_rate) + 1
+
+            # Initialize or extend buffer
+            if station_id not in self._buffers:
+                self._buffers[station_id] = np.zeros((3, npts), dtype=np.float32)
+                self._start_times[station_id] = start_time.datetime
+            else:
+                # Extend existing buffer
+                old_data = self._buffers[station_id]
+                old_start = self._start_times[station_id]
+                new_start = min(old_start, start_time.datetime)
+
+                # Calculate new buffer size
+                total_duration = max(
+                    (end_time.datetime - new_start).total_seconds(),
+                    (old_start - new_start).total_seconds() + old_data.shape[1] / self.sampling_rate
+                )
+                new_npts = int(total_duration * self.sampling_rate) + 1
+
+                new_buffer = np.zeros((3, new_npts), dtype=np.float32)
+
+                # Copy old data
+                old_offset = int((old_start - new_start).total_seconds() * self.sampling_rate)
+                if old_offset >= 0 and old_offset < new_npts:
+                    end_idx = min(old_offset + old_data.shape[1], new_npts)
+                    copy_len = end_idx - old_offset
+                    new_buffer[:, old_offset:end_idx] = old_data[:, :copy_len]
+
+                self._buffers[station_id] = new_buffer
+                self._start_times[station_id] = new_start
+
+            # Add new traces
+            buffer = self._buffers[station_id]
+            buffer_start = self._start_times[station_id]
+
+            for trace in traces:
+                comp = trace.stats.channel[-1]
+                if comp not in comp2idx:
+                    continue
+                idx = comp2idx[comp]
+
+                # Calculate offset
+                trace_start = trace.stats.starttime.datetime
+                offset = int((trace_start - buffer_start).total_seconds() * self.sampling_rate)
+
+                if offset < 0:
+                    # Trace starts before buffer
+                    trace_data = trace.data[-offset:]
+                    offset = 0
+                else:
+                    trace_data = trace.data
+
+                # Copy data
+                end_idx = min(offset + len(trace_data), buffer.shape[1])
+                copy_len = end_idx - offset
+                if copy_len > 0:
+                    buffer[idx, offset:end_idx] = trace_data[:copy_len].astype(np.float32)
+
+            self._last_update[station_id] = datetime.now()
+
+        # Cleanup old data
+        self._cleanup_all()
 
     def add_data(
         self,
@@ -215,26 +305,94 @@ class WaveformBuffer:
         data: list[float] | None = None,
     ) -> None:
         """
-        Add waveform data for a station.
+        Add waveform data for a station (legacy method).
 
         Args:
             station_id: Station identifier
             timestamp: Timestamp of the data
             data: Waveform samples (3-component: [E, N, Z])
         """
-        if station_id not in self._buffers:
-            self._buffers[station_id] = {
-                'timestamps': deque(),
-                'data': deque(),
-            }
+        import numpy as np
 
-        buffer = self._buffers[station_id]
-        buffer['timestamps'].append(timestamp)
-        buffer['data'].append(data)
+        if data is None:
+            return
+
+        if station_id not in self._buffers:
+            # Initialize with expected buffer size
+            buffer_samples = int(self.duration.total_seconds() * self.sampling_rate)
+            self._buffers[station_id] = np.zeros((3, buffer_samples), dtype=np.float32)
+            self._start_times[station_id] = timestamp
+
+        # This is a simplified version - for real use, use add_stream
         self._last_update[station_id] = datetime.now()
 
-        # Cleanup old data
-        self._cleanup_station(station_id)
+    def get_window_for_model(
+        self,
+        window_duration: timedelta | None = None,
+    ) -> dict | None:
+        """
+        Get waveform data formatted for PhaseNet model input.
+
+        Args:
+            window_duration: Duration of window to extract (None for full buffer)
+
+        Returns:
+            Dictionary with 'data', 'station_id', 'begin_time', 'dt_s' keys,
+            or None if insufficient data
+        """
+        import numpy as np
+        import torch
+
+        if not self._buffers:
+            return None
+
+        station_ids = sorted(self._buffers.keys())
+        if not station_ids:
+            return None
+
+        # Determine common time range
+        latest_start = max(self._start_times.values())
+        window_dur = window_duration or self.duration
+
+        # Find minimum samples across all stations
+        min_samples = float('inf')
+        for station_id in station_ids:
+            buffer = self._buffers[station_id]
+            min_samples = min(min_samples, buffer.shape[1])
+
+        if min_samples < self.min_samples:
+            logger.debug(f'Insufficient samples: {min_samples} < {self.min_samples}')
+            return None
+
+        # Extract window
+        window_samples = int(window_dur.total_seconds() * self.sampling_rate)
+        window_samples = min(window_samples, int(min_samples))
+
+        nx = len(station_ids)
+        nt = window_samples
+        data = np.zeros((3, nt, nx), dtype=np.float32)
+
+        for i, station_id in enumerate(station_ids):
+            buffer = self._buffers[station_id]
+            # Take last window_samples
+            data[:, :, i] = buffer[:, -window_samples:]
+
+        # Normalize per station
+        for i in range(nx):
+            for c in range(3):
+                channel_data = data[c, :, i]
+                std = np.std(channel_data)
+                if std > 0:
+                    data[c, :, i] = (channel_data - np.mean(channel_data)) / std
+
+        return {
+            'data': torch.from_numpy(data).unsqueeze(0),  # [1, 3, nt, nx]
+            'station_id': station_ids,
+            'begin_time': latest_start.isoformat(timespec='milliseconds'),
+            'dt_s': 1.0 / self.sampling_rate,
+            'nt': nt,
+            'nx': nx,
+        }
 
     def get_window(
         self,
@@ -242,7 +400,7 @@ class WaveformBuffer:
         duration: timedelta | None = None,
     ) -> dict:
         """
-        Get waveform data for specified stations.
+        Get raw waveform data for specified stations.
 
         Args:
             station_ids: List of station IDs (None for all)
@@ -258,41 +416,49 @@ class WaveformBuffer:
         for station_id in station_ids:
             if station_id in self._buffers:
                 buffer = self._buffers[station_id]
-                timestamps = list(buffer['timestamps'])
-                data = list(buffer['data'])
+                start_time = self._start_times.get(station_id)
 
-                if duration and timestamps:
-                    cutoff = timestamps[-1] - duration
-                    valid_indices = [i for i, t in enumerate(timestamps) if t >= cutoff]
-                    timestamps = [timestamps[i] for i in valid_indices]
-                    data = [data[i] for i in valid_indices]
+                if duration and buffer.shape[1] > 0:
+                    samples = int(duration.total_seconds() * self.sampling_rate)
+                    samples = min(samples, buffer.shape[1])
+                    data = buffer[:, -samples:]
+                else:
+                    data = buffer
 
                 result[station_id] = {
-                    'timestamps': timestamps,
                     'data': data,
+                    'start_time': start_time,
+                    'sampling_rate': self.sampling_rate,
                 }
 
         return result
 
+    def _cleanup_all(self) -> None:
+        """Remove old data from all station buffers."""
+        import numpy as np
+
+        max_samples = int(self.duration.total_seconds() * self.sampling_rate)
+
+        for station_id in list(self._buffers.keys()):
+            buffer = self._buffers[station_id]
+            if buffer.shape[1] > max_samples:
+                # Keep only the latest samples
+                self._buffers[station_id] = buffer[:, -max_samples:]
+                # Update start time
+                old_start = self._start_times[station_id]
+                removed_samples = buffer.shape[1] - max_samples
+                removed_seconds = removed_samples / self.sampling_rate
+                self._start_times[station_id] = old_start + timedelta(seconds=removed_seconds)
+
     def _cleanup_station(self, station_id: str) -> None:
         """Remove old data from a station buffer."""
-        if station_id not in self._buffers:
-            return
-
-        buffer = self._buffers[station_id]
-        if not buffer['timestamps']:
-            return
-
-        newest = buffer['timestamps'][-1]
-        cutoff = newest - self.duration
-
-        while buffer['timestamps'] and buffer['timestamps'][0] < cutoff:
-            buffer['timestamps'].popleft()
-            buffer['data'].popleft()
+        # Implemented in _cleanup_all for efficiency
+        pass
 
     def clear(self) -> None:
         """Clear all waveform data."""
         self._buffers.clear()
+        self._start_times.clear()
         self._last_update.clear()
 
     @property
@@ -303,8 +469,11 @@ class WaveformBuffer:
     @property
     def stats(self) -> dict:
         """Get buffer statistics."""
+        sample_counts = {k: v.shape[1] for k, v in self._buffers.items()}
         return {
             'stations': list(self._buffers.keys()),
             'station_count': len(self._buffers),
+            'sample_counts': sample_counts,
+            'start_times': {k: v.isoformat() for k, v in self._start_times.items()},
             'last_updates': {k: v.isoformat() for k, v in self._last_update.items()},
         }

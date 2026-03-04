@@ -47,5 +47,20 @@ class RealtimeConfig(BaseModel):
     # Simulator settings (for testing)
     simulator_speed: float = Field(default=1.0, ge=0.1, le=100.0, description='Simulation speed multiplier')
 
+    # Relocation settings (H3DD)
+    enable_relocation: bool = Field(default=False, description='Enable H3DD relocation')
+    h3dd_dir: Path | None = Field(default=None, description='H3DD executable directory')
+    model_3d: Path | None = Field(default=None, description='3D velocity model for relocation')
+
+    # Magnitude settings
+    enable_magnitude: bool = Field(default=True, description='Enable magnitude estimation')
+    pz_dir: Path | None = Field(default=None, description='PZ files directory for WA simulation')
+    use_wa_simulation: bool = Field(default=True, description='Use Wood-Anderson simulation for magnitude')
+
+    # Focal mechanism settings
+    enable_focal: bool = Field(default=False, description='Enable focal mechanism estimation')
+    gafocal_dir: Path | None = Field(default=None, description='GAfocal executable directory')
+    min_polarities: int = Field(default=8, description='Minimum polarities for focal mechanism')
+
     class Config:
         arbitrary_types_allowed = True

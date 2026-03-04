@@ -17,6 +17,9 @@
 /ParamConfig/*.json
 /toy_data
 /h3dd_1013*
+/CWB_EDTloc_to_py_pyew_release
+/autoquake/realtime/diagrams
+/.claude
 # output and some text
 
 gmt.history
@@ -78,7 +81,7 @@ testset*
 /autoquake/visualization
 
 # Documentation and AI context files
-CLAUDE.md
+# CLAUDE.md
 GITHUB_COPILOT_CONTEXT.md
 
 # Development environment

@@ -29,15 +29,19 @@ from autoquake.realtime import (
 
 def example_full_pipeline():
     """
-    Example: Complete earthquake processing pipeline.
+    Example: Complete earthquake processing pipeline with manual component control.
+
+    This example shows how to use individual components for maximum flexibility.
+    For simpler usage, see example_with_runner().
 
     Flow:
         1. Data ingestion (SEEDLINK or file)
         2. Picking (PhaseNet with polarity and amplitude)
-        3. Association + preliminary magnitude (GaMMA)
-        4. Relocation (H3DD)
-        5. Updated magnitude (WA-simulated)
-        6. Focal mechanism (GAfocal)
+        3. Association (GaMMA) - returns events WITH their associated picks
+        4. Preliminary magnitude (quick estimate)
+        5. Relocation (H3DD)
+        6. Accurate magnitude (using relocated position)
+        7. Focal mechanism (GAfocal)
     """
     station_file = Path('path/to/station.csv')
     result_path = Path('./realtime_results')
@@ -67,7 +71,7 @@ def example_full_pipeline():
     )
 
     # =========================================================================
-    # 3. Association - GaMMA + preliminary magnitude
+    # 3. Association - GaMMA (returns events with associated picks)
     # =========================================================================
     associator = RealtimeGaMMA(
         station=station_file,
@@ -78,24 +82,21 @@ def example_full_pipeline():
         ylim_degree=[22.0, 26.0],
     )
 
+    # =========================================================================
+    # 4. Refinement components
+    # =========================================================================
     magnitude_estimator = RealtimeMagnitude(
         station_info=station_file,
         pz_dir=Path('path/to/pz_files'),
         use_wa_simulation=True,
     )
 
-    # =========================================================================
-    # 4. Relocation - H3DD
-    # =========================================================================
     relocator = RealtimeRelocator(
         station_file=station_file,
         model_3d=Path('path/to/velocity_model.txt'),
         h3dd_dir=Path('path/to/H3DD'),
     )
 
-    # =========================================================================
-    # 6. Focal mechanism - GAfocal
-    # =========================================================================
     focal_estimator = RealtimeFocalMechanism(
         gafocal_dir=Path('path/to/GAfocal'),
         station_info=station_file,
@@ -112,57 +113,59 @@ def example_full_pipeline():
         # In real usage: waveform_buffer.add_stream(stream_from_seedlink)
 
         # ---------------------------------------------------------------------
-        # Step 2: Picking (with polarity and amplitude for DP table)
+        # Step 2: Picking (outputs to pick_buffer automatically)
         # ---------------------------------------------------------------------
-        picks = picker.check_and_process()
+        picker.check_and_process()
 
         # ---------------------------------------------------------------------
-        # Step 3: Association + preliminary magnitude
+        # Step 3: Association - check_and_process returns (event, picks) tuples
         # ---------------------------------------------------------------------
-        if pick_buffer.should_trigger():
-            events = associator.associate()
+        # NOTE: check_and_process() internally calls should_trigger() and
+        # returns list of (event_dict, associated_picks) tuples
+        events_with_picks = associator.check_and_process()
 
-            for event in events:
-                # Get associated picks for this event
-                event_picks = [
-                    p for p in picks
-                    if p.get('event_index') == event['event_index']
-                ]
+        for event, event_picks in events_with_picks:
+            print(f"\nEvent detected at {event.get('time')}")
+            print(f"  Location: {event['latitude']:.3f}, {event['longitude']:.3f}")
+            print(f"  Depth: {event.get('depth_km', 0):.1f} km")
+            print(f"  Picks: {len(event_picks)}")
 
-                # Preliminary magnitude (fast estimate)
-                prelim_mag = magnitude_estimator.estimate_preliminary(event, event_picks)
-                if prelim_mag is not None:
-                    event['magnitude_preliminary'] = prelim_mag
-                    print(f"Event detected: M{prelim_mag:.1f} (preliminary)")
+            # -----------------------------------------------------------------
+            # Step 4: Preliminary magnitude (fast estimate)
+            # -----------------------------------------------------------------
+            prelim_mag = magnitude_estimator.estimate_preliminary(event, event_picks)
+            if prelim_mag is not None:
+                event['magnitude_preliminary'] = prelim_mag
+                print(f"  Preliminary magnitude: M{prelim_mag:.1f}")
 
-                # -----------------------------------------------------------------
-                # Step 4: Relocation
-                # -----------------------------------------------------------------
-                relocated = relocator.relocate_single(event, event_picks)
-                if relocated:
-                    print(f"  Relocated: {relocated['latitude']:.4f}, "
-                          f"{relocated['longitude']:.4f}, {relocated['depth_km']:.1f} km")
-                else:
-                    relocated = event  # Fallback to original location
+            # -----------------------------------------------------------------
+            # Step 5: Relocation (H3DD)
+            # -----------------------------------------------------------------
+            relocated = relocator.relocate_single(event, event_picks)
+            if relocated:
+                print(f"  Relocated: {relocated['latitude']:.4f}, "
+                      f"{relocated['longitude']:.4f}, {relocated['depth_km']:.1f} km")
+            else:
+                relocated = event  # Fallback to original location
 
-                # -----------------------------------------------------------------
-                # Step 5: Updated magnitude (using relocated position)
-                # -----------------------------------------------------------------
-                final_mag = magnitude_estimator.estimate_from_relocation(
-                    relocated, event_picks
-                )
-                if final_mag is not None:
-                    event['magnitude'] = final_mag
-                    print(f"  Final magnitude: M{final_mag:.1f}")
+            # -----------------------------------------------------------------
+            # Step 6: Accurate magnitude (using relocated position)
+            # -----------------------------------------------------------------
+            final_mag = magnitude_estimator.estimate_from_relocation(
+                relocated, event_picks
+            )
+            if final_mag is not None:
+                event['magnitude'] = final_mag
+                print(f"  Final magnitude: M{final_mag:.1f}")
 
-                # -----------------------------------------------------------------
-                # Step 6: Focal mechanism
-                # -----------------------------------------------------------------
-                focal_result = focal_estimator.estimate(relocated, event_picks)
-                if focal_result:
-                    event['focal_mechanism'] = focal_result
-                    print(f"  Focal: strike={focal_result['strike']:.0f}, "
-                          f"dip={focal_result['dip']:.0f}, rake={focal_result['rake']:.0f}")
+            # -----------------------------------------------------------------
+            # Step 7: Focal mechanism
+            # -----------------------------------------------------------------
+            focal_result = focal_estimator.estimate(relocated, event_picks)
+            if focal_result:
+                event['focal_mechanism'] = focal_result
+                print(f"  Focal: strike={focal_result['strike']:.0f}, "
+                      f"dip={focal_result['dip']:.0f}, rake={focal_result['rake']:.0f}")
 
         # Break for example
         break
@@ -172,8 +175,16 @@ def example_with_runner():
     """
     Example: Using RealtimeRunner for simplified orchestration.
 
-    RealtimeRunner handles the complete pipeline internally,
-    including the refine_event() method for post-association processing.
+    RealtimeRunner handles the complete pipeline internally:
+    - Pick buffer management
+    - GaMMA association
+    - Preliminary magnitude
+    - H3DD relocation
+    - Accurate magnitude (WA-simulated)
+    - Focal mechanism
+    - Result publishing
+
+    This is the RECOMMENDED approach for most use cases.
     """
     config = RealtimeConfig(
         station_file=Path('path/to/station.csv'),
@@ -196,17 +207,25 @@ def example_with_runner():
 
     runner = RealtimeRunner(config)
 
-    # Option A: Run simulation with existing picks
+    # Option A: Run simulation with existing picks (for testing)
     runner.run_simulation(
         picks_file=Path('path/to/picks.csv'),
-        speed=10.0,
-        max_duration=300,
+        speed=10.0,  # 10x faster than real-time
+        max_duration=300,  # Stop after 300 seconds
     )
 
-    # Option B: Manual control with refine_event()
+    # Option B: Manual processing control
+    # Returns list of fully processed events (with all refinements applied)
     # events = runner.process_once()
     # for event in events:
-    #     refined = runner.refine_event(event, associated_picks)
+    #     print(f"Event: M{event.get('magnitude', '?')}")
+    #     print(f"  Relocated depth: {event.get('depth_km_relocated', 'N/A')} km")
+    #     if 'focal_mechanism' in event:
+    #         fm = event['focal_mechanism']
+    #         print(f"  Focal: {fm['strike']}/{fm['dip']}/{fm['rake']}")
+
+    # Get statistics
+    print(f"\nProcessing stats: {runner.stats}")
 
 
 def example_seedlink_integration():
@@ -214,7 +233,7 @@ def example_seedlink_integration():
     Example: Real-time data from SEEDLINK server.
 
     This shows how to connect to a SEEDLINK server and process
-    continuous waveform data.
+    continuous waveform data with the complete pipeline.
     """
     # Station configuration
     stations = [
@@ -250,7 +269,7 @@ def example_seedlink_integration():
         device='cuda',
     )
 
-    # Associator
+    # Associator - check_and_process() returns (event, picks) tuples
     associator = RealtimeGaMMA(
         station=Path('path/to/station.csv'),
         result_path=Path('./results'),
@@ -258,20 +277,23 @@ def example_seedlink_integration():
         center=(121.5, 24.0),
     )
 
-    # Start SEEDLINK streaming
+    # Start SEEDLINK streaming (runs in background thread)
     client.start()
 
     try:
         while True:
-            # Picker processes waveforms and outputs picks with polarity
+            # Picker processes waveforms and outputs picks to pick_buffer
             picker.check_and_process()
 
-            # Association
-            if pick_buffer.should_trigger():
-                events = associator.associate()
-                for event in events:
-                    print(f"Event: {event['time']} at "
-                          f"{event['latitude']:.3f}, {event['longitude']:.3f}")
+            # Association - internally checks should_trigger()
+            # Returns list of (event_dict, associated_picks) tuples
+            events_with_picks = associator.check_and_process()
+
+            for event, picks in events_with_picks:
+                print(f"Event: {event.get('time')} at "
+                      f"{event['latitude']:.3f}, {event['longitude']:.3f}, "
+                      f"depth={event.get('depth_km', 0):.1f}km, "
+                      f"picks={len(picks)}")
 
     except KeyboardInterrupt:
         print("Stopping...")

@@ -126,21 +126,22 @@ class RealtimeGaMMA:
             max_sigma11=config.max_sigma11,
         )
 
-    def check_and_process(self) -> list[dict]:
+    def check_and_process(self) -> list[tuple[dict, list[dict]]]:
         """
         Check if processing should be triggered and process if so.
 
         This is the main entry point for the realtime loop.
 
         Returns:
-            List of validated events (empty if no processing or no valid events)
+            List of (event_dict, associated_picks) tuples.
+            Empty list if no processing triggered or no valid events.
         """
         if not self.pick_buffer.should_trigger():
             return []
 
         return self.process_window()
 
-    def process_window(self) -> list[dict]:
+    def process_window(self) -> list[tuple[dict, list[dict]]]:
         """
         Process current window of picks.
 
@@ -148,11 +149,11 @@ class RealtimeGaMMA:
         1. Gets picks from buffer
         2. Runs GaMMA association
         3. Validates events
-        4. Publishes valid events
+        4. Publishes preliminary alerts
         5. Recycles unassociated picks
 
         Returns:
-            List of validated event dictionaries
+            List of (event_dict, associated_picks) tuples for validated events
         """
         self._window_counter += 1
         logger.info(f'Processing window {self._window_counter}')
@@ -254,7 +255,7 @@ class RealtimeGaMMA:
         self,
         events_df: pd.DataFrame,
         picks_result: pd.DataFrame,
-    ) -> list[dict]:
+    ) -> list[tuple[dict, list[dict]]]:
         """
         Process GaMMA results and validate events.
 
@@ -263,22 +264,21 @@ class RealtimeGaMMA:
             picks_result: Picks DataFrame with assignments
 
         Returns:
-            List of validated event dictionaries
+            List of (event_dict, associated_picks) tuples for validated events
         """
         if events_df.empty:
             logger.info('No events detected in window')
             return []
 
-        valid_events = []
+        valid_results = []
 
         for _, event in events_df.iterrows():
             event_dict = event.to_dict()
 
-            # Add pick counts
-            # event_picks = picks_result[picks_result['event_index'] == event_dict.get('event_index', -1)]
-            # event_dict['num_picks'] = len(event_picks)
-            # event_dict['num_p_picks'] = len(event_picks[event_picks['phase_type'].str.upper() == 'P'])
-            # event_dict['num_s_picks'] = len(event_picks[event_picks['phase_type'].str.upper() == 'S'])
+            # Extract associated picks for this event
+            event_idx = event_dict.get('event_index', -1)
+            event_picks_df = picks_result[picks_result['event_index'] == event_idx]
+            associated_picks = event_picks_df.to_dict('records')
 
             # Validate and check for duplicates
             if self.validator.validate_and_register(event_dict):
@@ -286,10 +286,10 @@ class RealtimeGaMMA:
                 self._event_counter += 1
                 event_dict['global_event_index'] = self._event_counter
 
-                valid_events.append(event_dict)
+                valid_results.append((event_dict, associated_picks))
                 self._all_events.append(event_dict)
 
-                # Publish
+                # Publish preliminary alert
                 if self.publisher:
                     self.publisher.publish_preliminary(event_dict)
 
@@ -298,12 +298,12 @@ class RealtimeGaMMA:
                     f"lat={event_dict.get('latitude', 0):.3f}, "
                     f"lon={event_dict.get('longitude', 0):.3f}, "
                     f"depth={event_dict.get('depth_km', 0):.1f}km, "
-                    f"picks={event_dict['num_picks']}"
+                    f"picks={event_dict.get('num_picks', len(associated_picks))}"
                 )
             else:
                 logger.debug(f"Event rejected: {event_dict.get('event_index')}")
 
-        return valid_events
+        return valid_results
 
     def get_all_events(self) -> pd.DataFrame:
         """Get all validated events as DataFrame."""

@@ -51,6 +51,7 @@ class RealtimeRunner:
         """
         self.config = config
         self._running = False
+        self._all_events: list[dict] = []
         self._setup_components()
 
     def _setup_components(self) -> None:
@@ -129,6 +130,92 @@ class RealtimeRunner:
 
         logger.info('Realtime system components initialized')
 
+    def _process_event_pipeline(
+        self,
+        event: dict,
+        picks: list[dict],
+    ) -> dict:
+        """
+        Complete event processing pipeline for a single event.
+
+        This method runs all refinement stages in sequence:
+        1. Preliminary magnitude (quick estimate from raw amplitudes)
+        2. H3DD relocation (precise hypocenter location)
+        3. Accurate magnitude (using relocated position)
+        4. Focal mechanism (first-motion polarity analysis)
+        5. Publish final update
+
+        Args:
+            event: Event dictionary from GaMMA association
+            picks: Associated picks for this event
+
+        Returns:
+            Enhanced event dictionary with all refinement results
+        """
+        result = event.copy()
+
+        # Stage 1: Preliminary magnitude (quick estimate)
+        if self.magnitude_estimator:
+            try:
+                prelim_mag = self.magnitude_estimator.estimate_preliminary(event, picks)
+                if prelim_mag is not None:
+                    result['magnitude_preliminary'] = round(prelim_mag, 2)
+                    logger.debug(f'Preliminary magnitude: {prelim_mag:.2f}')
+            except Exception as e:
+                logger.warning(f'Preliminary magnitude failed: {e}')
+
+        # Stage 2: Relocation (H3DD)
+        relocated_event = None
+        if self.relocator:
+            try:
+                relocated = self.relocator.relocate_single(event, picks)
+                if relocated:
+                    relocated_event = relocated
+                    result['latitude_relocated'] = relocated['latitude']
+                    result['longitude_relocated'] = relocated['longitude']
+                    result['depth_km_relocated'] = relocated['depth_km']
+                    result['time_relocated'] = relocated.get('time')
+                    logger.debug(
+                        f'Relocated: {relocated["latitude"]:.4f}, '
+                        f'{relocated["longitude"]:.4f}, '
+                        f'{relocated["depth_km"]:.1f}km'
+                    )
+            except Exception as e:
+                logger.warning(f'Relocation failed: {e}')
+
+        # Stage 3: Accurate magnitude (using relocated position)
+        if self.magnitude_estimator:
+            try:
+                event_for_mag = relocated_event or event
+                accurate_mag = self.magnitude_estimator.estimate_from_relocation(
+                    event_for_mag, picks
+                )
+                if accurate_mag is not None:
+                    result['magnitude'] = round(accurate_mag, 2)
+                    logger.debug(f'Final magnitude: {accurate_mag:.2f}')
+            except Exception as e:
+                logger.warning(f'Magnitude estimation failed: {e}')
+
+        # Stage 4: Focal mechanism
+        if self.focal_estimator:
+            try:
+                event_for_focal = relocated_event or event
+                focal = self.focal_estimator.estimate(event_for_focal, picks)
+                if focal:
+                    result['focal_mechanism'] = focal
+                    logger.debug(
+                        f'Focal: strike={focal["strike"]:.1f}, '
+                        f'dip={focal["dip"]:.1f}, '
+                        f'rake={focal["rake"]:.1f}'
+                    )
+            except Exception as e:
+                logger.warning(f'Focal mechanism failed: {e}')
+
+        # Stage 5: Publish update with all refinements
+        self.publisher.publish_update(result)
+
+        return result
+
     def run_simulation(
         self,
         picks_file: Path,
@@ -167,13 +254,19 @@ class RealtimeRunner:
                 for pick in picks:
                     self.pick_buffer.add_pick(pick)
 
-                # Check if we should trigger association
-                events = self.associator.check_and_process()
-                if events:
-                    logger.info(f'Detected {len(events)} events')
+                # Full pipeline: association + refinement
+                events_with_picks = self.associator.check_and_process()
+                for event, associated_picks in events_with_picks:
+                    refined = self._process_event_pipeline(event, associated_picks)
+                    self._all_events.append(refined)
+                    logger.info(
+                        f"Event processed: "
+                        f"M{refined.get('magnitude', '?')}, "
+                        f"depth={refined.get('depth_km_relocated', refined.get('depth_km', '?'))}km"
+                    )
 
                 # Check duration limit
-                #TODO: This is not logical, earthquake might not happen continuously.
+                # TODO: This is not logical, earthquake might not happen continuously.
                 if max_duration and (time.time() - start_time) > max_duration:
                     logger.info(f'Reached max duration of {max_duration}s')
                     break
@@ -205,9 +298,17 @@ class RealtimeRunner:
             while self._running:
                 # TODO: Get picks from SEEDLINK or other source
                 # For now, just poll the buffer
-                events = self.associator.check_and_process()
-                if events:
-                    logger.info(f'Detected {len(events)} events')
+
+                # Full pipeline: association + refinement
+                events_with_picks = self.associator.check_and_process()
+                for event, associated_picks in events_with_picks:
+                    refined = self._process_event_pipeline(event, associated_picks)
+                    self._all_events.append(refined)
+                    logger.info(
+                        f"Event processed: "
+                        f"M{refined.get('magnitude', '?')}, "
+                        f"depth={refined.get('depth_km_relocated', refined.get('depth_km', '?'))}km"
+                    )
 
                 time.sleep(poll_interval)
 
@@ -230,86 +331,20 @@ class RealtimeRunner:
 
     def process_once(self) -> list[dict]:
         """
-        Process current buffer once.
+        Process current buffer once with full pipeline.
 
         Useful for manual testing or external control.
 
         Returns:
-            List of detected events
+            List of fully processed events (with refinements applied)
         """
-        return self.associator.check_and_process()
-
-    def refine_event(
-        self,
-        event: dict,
-        picks: list[dict],
-    ) -> dict:
-        """
-        Refine event with relocation, magnitude, and focal mechanism.
-
-        Applies relocation, magnitude estimation, and focal mechanism
-        determination to a validated event.
-
-        Args:
-            event: Event dictionary from GaMMA
-            picks: Associated picks for the event
-
-        Returns:
-            Enhanced event with relocation, magnitude, and focal mechanism
-        """
-        result = event.copy()
-
-        # Stage 1: Preliminary magnitude (quick estimate)
-        if self.magnitude_estimator:
-            try:
-                prelim_mag = self.magnitude_estimator.estimate_preliminary(event, picks)
-                if prelim_mag is not None:
-                    result['magnitude_preliminary'] = round(prelim_mag, 2)
-                    logger.debug(f'Preliminary magnitude: {prelim_mag:.2f}')
-            except Exception as e:
-                logger.warning(f'Preliminary magnitude failed: {e}')
-
-        # Stage 2: Relocation (H3DD)
-        relocated_event = None
-        if self.relocator:
-            try:
-                relocated = self.relocator.relocate_single(event, picks)
-                if relocated:
-                    relocated_event = relocated
-                    result['latitude_relocated'] = relocated['latitude']
-                    result['longitude_relocated'] = relocated['longitude']
-                    result['depth_km_relocated'] = relocated['depth_km']
-                    result['time_relocated'] = relocated['time']
-                    logger.debug(f'Relocated to {relocated["latitude"]:.4f}, {relocated["longitude"]:.4f}')
-            except Exception as e:
-                logger.warning(f'Relocation failed: {e}')
-
-        # Stage 3: Accurate magnitude using relocated position
-        if self.magnitude_estimator:
-            try:
-                # Use relocated event if available, otherwise original
-                event_for_mag = relocated_event or event
-                accurate_mag = self.magnitude_estimator.estimate_from_relocation(
-                    event_for_mag, picks
-                )
-                if accurate_mag is not None:
-                    result['magnitude'] = round(accurate_mag, 2)
-                    logger.debug(f'Final magnitude: {accurate_mag:.2f}')
-            except Exception as e:
-                logger.warning(f'Magnitude estimation failed: {e}')
-
-        # Stage 4: Focal mechanism
-        if self.focal_estimator:
-            try:
-                event_for_focal = relocated_event or event
-                focal = self.focal_estimator.estimate(event_for_focal, picks)
-                if focal:
-                    result['focal_mechanism'] = focal
-                    logger.debug(f'Focal: strike={focal["strike"]:.1f}, dip={focal["dip"]:.1f}, rake={focal["rake"]:.1f}')
-            except Exception as e:
-                logger.warning(f'Focal mechanism failed: {e}')
-
-        return result
+        events_with_picks = self.associator.check_and_process()
+        processed_events = []
+        for event, associated_picks in events_with_picks:
+            refined = self._process_event_pipeline(event, associated_picks)
+            self._all_events.append(refined)
+            processed_events.append(refined)
+        return processed_events
 
     def stop(self) -> None:
         """Stop the runner."""
@@ -334,10 +369,16 @@ class RealtimeRunner:
             logger.error(f'Failed to save results: {e}')
 
     @property
+    def all_events(self) -> list[dict]:
+        """Get all processed events."""
+        return self._all_events.copy()
+
+    @property
     def stats(self) -> dict:
         """Get runner statistics."""
         stats = {
             'running': self._running,
+            'total_events_processed': len(self._all_events),
             'associator': self.associator.stats,
         }
 

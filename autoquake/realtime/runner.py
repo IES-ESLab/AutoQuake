@@ -155,6 +155,7 @@ class RealtimeRunner:
         result = event.copy()
 
         # Stage 1: Preliminary magnitude (quick estimate)
+        #NOTE: 這邊是只用amplitude來做快速的規模估算
         if self.magnitude_estimator:
             try:
                 prelim_mag = self.magnitude_estimator.estimate_preliminary(event, picks)

@@ -548,7 +548,6 @@ class PhaseNet:
             torch.backends.cudnn.benchmark = True
 
         if args.model in ['phasenet', 'phasenet_plus']:
-            logger.info(args.start, args.end)
             dataset = SeismicTraceIterableDataset(
                 data_path=str(args.data_path),
                 data_list=args.data_list,

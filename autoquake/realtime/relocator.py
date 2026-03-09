@@ -293,6 +293,7 @@ class RealtimeRelocator:
         logger.info(f'Relocating {len(events)} events with {len(picks)} picks')
 
         # Preprocess data
+        #TODO: 這邊的preprocess要能夠把event_index帶著走，不要再多一個h3dd_event_index了
         df_event, df_picks = self._preprocess_data(events, picks)
 
         # Write .dat_ch file
@@ -353,17 +354,18 @@ class RealtimeRelocator:
             'time': event.get('time') or event.get('origin_time'),
             'latitude': event['latitude'],
             'longitude': event['longitude'],
-            'depth_km': event.get('depth_km', event.get('depth', 10.0)),
+            'depth_km': event.get('depth_km'),
         }])
 
         picks_df = pd.DataFrame(picks)
-        if 'event_index' not in picks_df.columns:
-            picks_df['event_index'] = 0
+        # if 'event_index' not in picks_df.columns:
+        #     picks_df['event_index'] = 0
 
         result = self.relocate(events_df, picks_df)
 
         if result is not None and not result.empty:
             row = result.iloc[0]
+            #TODO: 這邊return的可能有點少
             return {
                 'time': row['time'].isoformat(),
                 'latitude': row['latitude'],

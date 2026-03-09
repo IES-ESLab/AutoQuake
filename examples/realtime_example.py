@@ -187,22 +187,22 @@ def example_with_runner():
     This is the RECOMMENDED approach for most use cases.
     """
     config = RealtimeConfig(
-        station_file=Path('path/to/station.csv'),
-        result_path=Path('./realtime_results'),
+        station_file=Path('examples/station.csv'),
+        result_path=Path('examples/realtime_results'),
         # Association settings
-        center=(121.5, 24.0),
-        xlim_degree=[120.0, 123.0],
-        ylim_degree=[22.0, 26.0],
+        center=(121.625, 24.0),
+        xlim_degree=[121.0, 122.25],
+        ylim_degree=[23.25, 24.75],
         min_picks_per_eq=8,
         # Enable all refinement stages
         enable_magnitude=True,
         enable_relocation=True,
         enable_focal=True,
         # Paths for refinement components
-        model_3d=Path('path/to/velocity_model.txt'),
-        h3dd_dir=Path('path/to/H3DD'),
-        pz_dir=Path('path/to/pz_files'),
-        gafocal_dir=Path('path/to/GAfocal'),
+        model_3d=Path('H3DD/tomops_H14'),
+        h3dd_dir=Path('H3DD'),
+        pz_dir=Path('/home/patrick/Work/Hualien0403/PZ'),
+        gafocal_dir=Path('GAfocal'),
     )
 
     runner = RealtimeRunner(config)

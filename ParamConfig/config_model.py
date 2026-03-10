@@ -1,5 +1,7 @@
 #%%
 from pathlib import Path
+from collections import Counter
+import pandas as pd
 from typing import Callable, Literal, Any
 from pydantic import BaseModel, model_validator
 import re
@@ -82,6 +84,7 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     Parameters for PhaseNet (all parameters including 'mode').
     """
     data_parent_dir: Path
+    station_csv: Path
     args_list: list[PhaseNetConfig] | None = None
     date_list: list[str] | None = None  # New attribute to store the list of dates
 
@@ -148,24 +151,46 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         and return a list of PhaseNetConfig objects with updated startdate and enddate.
         Only startdate and enddate are replaced in each iteration.
         """
-        def check_data_list(data_path: Path, data_list, format: str):
-            """
-            ## This is for generating data_list from archive-sac data (if not provided).
-            """
+        def check_data_list(
+            data_path: Path,
+            station_csv: Path | str,
+            data_list: str | Path | None,
+            format: str,
+            splitter='.'
+            ) -> list | None:
+            def _get_single_station_type(data_path, station, splitter, format):
+                sta_list = list(data_path.glob(f"*.{station}.*"))
+                sta_collector = []
+                for sta_path in sta_list:
+                    filename = sta_path.name 
+                    index = filename.find(station)
+                    tmp_filename = filename[index:]
+                    s, loc, inst = tmp_filename.split(splitter)[:3]
+                    sta_collector.append(str(data_path / f"*{s}.{loc}.{inst[:-1]}*.{format}"))
+                return sta_collector
             if data_list is None:
-                all_list = list(data_path.glob(f'*{format}'))
-                data_list = []
-                if format == 'SAC':
-                    for i in all_list:
-                        fname = f"{str(i).split('.D.')[0][:-1]}*"
-                        if fname not in data_list:
-                            data_list.append(fname)
-                elif format == 'h5':
+                if format == "SAC":            
+                    df_station = pd.read_csv(station_csv)
+                    fname_set = set()
+                    for sta_name in df_station['station']:
+                        sta_collector = _get_single_station_type(data_path, sta_name, splitter, format)
+                        # print(Counter(sta_collector))
+                        fname_set.update(set(sta_collector))
+                    return list(fname_set)
+                elif format == "h5":
                     return None
+                else:
+                    raise ValueError(f"Unsupported format '{format}'. Supported formats are 'SAC' and 'h5'.")
             else:
                 with open(data_list) as f:
                     data_list = f.read().splitlines()
-            return data_list     
+                return data_list
+
+
+            # if output_path is not None:
+            #     with open(output_path, 'w') as f:
+            #         for i in fname_set:
+            #             f.write(f"{i}\n")    
            
         start = datetime.strptime(self.start, '%Y%m%d')
         end = datetime.strptime(self.end, '%Y%m%d')
@@ -179,7 +204,9 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
             config_kwargs["end"] = next_time.strftime('%Y%m%d') # For consistency, but not use.
             data_path = self.data_parent_dir / current.strftime('%Y%m%d') 
             config_kwargs["data_path"] = data_path
-            config_kwargs["data_list"] = check_data_list(data_path, self.data_list, self.format)
+            _gen_list = check_data_list(data_path, self.station_csv, self.data_list, self.format)
+            config_kwargs["data_list"] = _gen_list
+            print(f"Available station on {current}: {len(_gen_list)} / {pd.read_csv(self.station_csv).shape[0]}")
             config = PhaseNetConfig(**{k: config_kwargs[k] for k in PhaseNetConfig.model_fields.keys()})
             configs.append(config)
             current = next_time

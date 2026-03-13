@@ -108,9 +108,15 @@ if __name__ == '__main__':
         gamma_picks=gamma.get_picks(),
         output_dir=config.result_path,
         sac_parent_dir=config.Diting.sac_parent_dir,
-        type_judge=config.Diting.type_judge
+        h5_parent_dir=config.Diting.h5_parent_dir,
+        interval=config.Diting.interval,
+        sampling_rate=config.Diting.sampling_rate,
+        need_resample=config.Diting.need_resample,
+        chunk_size=config.Diting.chunk_size,
+        das_in_data=config.Diting.das_in_data,
+        type_judge=config.Diting.type_judge,
     )
-    dt_polarity.run_parallel_predict(processes=15)
+    dt_polarity.run_parallel_predict(processes=config.Diting.cpu_number)
 
     logging.info('Format converting with pol and mag...')
     dout_file_name = pol_mag_to_dout(

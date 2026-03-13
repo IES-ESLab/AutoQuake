@@ -263,9 +263,15 @@ class MagConfig(BaseModel):
     cpu_number: int
 
 class DitingConfig(BaseModel):
-    sac_parent_dir: Path
-    cpu_number: int
-    type_judge: Callable[[str], bool] = default_type_judge
+    sac_parent_dir: Path | None = None
+    h5_parent_dir: Path | None = None
+    cpu_number: int = 3
+    chunk_size: int = 50
+    das_in_data: bool = False
+    type_judge: Callable[[str], bool] | None = default_type_judge
+    interval: int = 300
+    sampling_rate: float = 100.0
+    need_resample: bool = False
 
 class MainConfig(BaseModel):
     result_path: Path

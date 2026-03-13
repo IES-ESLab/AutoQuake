@@ -69,6 +69,12 @@
     },
     "Diting":{
         "sac_parent_dir": "test",
-        "cpu_number": 15
+        "h5_parent_dir": null,
+        "cpu_number": 15,
+        "chunk_size": 50,
+        "das_in_data": false,
+        "interval": 300,
+        "sampling_rate": 100.0,
+        "need_resample": false
     }
 }

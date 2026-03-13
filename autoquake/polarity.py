@@ -60,7 +60,9 @@ def _init_worker(config_dict: dict) -> None:
     # Set thread limits BEFORE creating session for consistent behavior
     os.environ['OMP_NUM_THREADS'] = '1'
     os.environ['MKL_NUM_THREADS'] = '1'
-
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ['NUMEXPR_NUM_THREADS'] = '1'
+    
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = 1
     session_options.inter_op_num_threads = 1

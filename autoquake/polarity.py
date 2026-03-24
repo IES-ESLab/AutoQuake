@@ -115,6 +115,8 @@ def _get_seis_waveform(
         st.taper(0.001)
 
         if need_resample:
+            
+            st.trim(starttime=p_arrival - 10, endtime=p_arrival + 10)
             st.resample(sampling_rate=sampling_rate)
 
         st.trim(starttime=p_arrival - time_window, endtime=p_arrival + time_window)

@@ -4,6 +4,7 @@ import calendar
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+from time import time
 
 # Absolute path for GAfocal dir
 GAFOCAL_DIR = Path(__file__).parents[1].resolve() / 'GAfocal'
@@ -111,6 +112,7 @@ def pseudo_picks_generator(
     result_df.to_csv(pseudo_gamma_picks, index=False)
 
     return result_df
+
 # Processing phasenet picks
 def gamma_preprocessing(pickings: Path, output_dir: Path) -> Path:
     df = pd.read_csv(pickings)
@@ -370,176 +372,114 @@ def index_h3dd2gamma(df_table: pd.DataFrame, h3dd_index: int):
             "DataFrame must contain 'event_index' and 'h3dd_event_index' columns."
         )
     
-def pol_mag_to_dout(
-    ori_dout: Path,
-    result_path: Path,
-    gamma_event: Path,
-    polarity_picks: Path,
-    magnitude_events: Path,
-    magnitude_picks: Path,
-    output_path=GAFOCAL_DIR,
-):
-    """
-    Combining polarity and magnitude information into dout.
-    """
-    df_table = get_index_table(df=pd.read_csv(gamma_event))
+def _process_chunk_full(args):
+    lines, start_event_idx, df_mag_event, df_mag_pick, df_pol = args
+    result = []
+    h3dd_event_index = start_event_idx - 1
+    
+    for line in lines:
+        if line.strip().endswith('3DD'):
+            h3dd_event_index += 1
+            event_mag = round(df_mag_event[
+                df_mag_event['h3dd_event_index'] == h3dd_event_index
+            ]['magnitude'].iloc[0], 2)
+            result.append(f'{line[:40]}{event_mag:4.2f}{line[44:]}')
 
-    df_pol = pd.read_csv(polarity_picks)
-    df_mag_event = pd.read_csv(magnitude_events)
-    df_mag_pick = pd.read_csv(magnitude_picks)
-    output_dout = output_path / f'{ori_dout.name}'
-    with open(ori_dout) as r:
-        lines = r.readlines()
-    with open(output_dout, 'w') as fo:
-        h3dd_event_index = -1
-        for line in lines:
-            if line.strip().split()[-1] == '3DD':
-                h3dd_event_index += 1
-                event_mag = round(
-                    df_mag_event[
-                        df_mag_event['h3dd_event_index'] == h3dd_event_index
-                    ]['magnitude'].iloc[0],
-                    2,
-                )
-
-                fo.write(f'{line[:40]}{event_mag:4.2f}{line[44:]}')
-            elif line[35:39] == '1.00':
-                station = line[:5].strip()
-                sta_mag = round(
-                    df_mag_pick[
-                        (df_mag_pick['h3dd_event_index'] == h3dd_event_index)
-                        & (df_mag_pick['station_id'] == station)
-                    ]['magnitude'].iloc[0],
-                    2,
-                )
-                #TODO: There might exist the waveform skip in polarity process, find out why.
-                try:
-                    polarity = df_pol[
-                        (
-                            df_pol['event_index']
-                            == index_h3dd2gamma(df_table, h3dd_event_index)
-                        )
-                        & (df_pol['station_id'] == station)
-                    ]['polarity'].iloc[0]
-                except IndexError as e:
-                    polarity = 'x'
-                    # logging.info(f'H3DD event_{h3dd_event_index}: {station} no polarity picks {e}')
-                if polarity == 'U':
-                    polarity = '+'
-                elif polarity == 'D':
-                    polarity = '-'
-                else:
-                    polarity = ' '
-
-                fo.write(
-                    f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 {sta_mag:4.2f} 0   0.0\n'
-                )
-    os.system(f"cp {output_dout} {result_path}")
-    return ori_dout.name
-
-def pol_to_dout(
-    ori_dout: Path,
-    result_path: Path,
-    df_reorder_event: pd.DataFrame,
-    polarity_picks: Path,
-    output_path=GAFOCAL_DIR,
-):
-    """
-    Combining polarity and magnitude information into dout.
-    """
-    df_table = get_index_table(df=df_reorder_event)
-
-    df_pol = pd.read_csv(polarity_picks)
-    output_dout = output_path / f'{ori_dout.name}'
-    with open(output_dout, 'w') as fo:
-        with open(ori_dout) as r:
-            lines = r.readlines()
-        h3dd_event_index = -1
-        for line in lines:
-            if line.strip().split()[-1] == '3DD':
-                h3dd_event_index += 1
-                fo.write(line)
-            elif line[35:39] == '1.00':
-                station = line[:5].strip()
+        elif line[35:39] == '1.00':
+            station = line[:5].strip()
+            sta_mag = round(df_mag_pick[
+                (df_mag_pick['h3dd_event_index'] == h3dd_event_index) &
+                (df_mag_pick['station_id'] == station)
+            ]['magnitude'].iloc[0], 2)
+            
+            try:
                 polarity = df_pol[
-                    (
-                        df_pol['event_index']
-                        == index_h3dd2gamma(df_table, h3dd_event_index)
-                    )
-                    & (df_pol['station_id'] == station)
+                    (df_pol['h3dd_event_index'] == h3dd_event_index) &
+                    (df_pol['station_id'] == station) &
+                    (df_pol['phase_type'] == 'P')
                 ]['polarity'].iloc[0]
-                if polarity == 'U':
-                    polarity = '+'
-                elif polarity == 'D':
-                    polarity = '-'
-                else:
-                    polarity = ' '
+                polarity = '+' if polarity == 'U' else ('-' if polarity == 'D' else ' ')
+            except IndexError:
+                polarity = ' '
+            
+            result.append(f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 {sta_mag:4.2f} 0   0.0\n')
+        else:
+            result.append(line)
+    
+    return result
 
-                fo.write(
-                    f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 0.00 0   0.0\n'
-                )
-    os.system(f"cp {output_dout} {result_path}")
-    return ori_dout.name
+def _process_chunk_no_mag(args):
+    lines, start_event_idx, df_pol = args
+    result = []
+    h3dd_event_index = start_event_idx - 1
+    
+    for line in lines:
+        if line.strip().endswith('3DD'):
+            h3dd_event_index += 1
+            result.append(line)
 
-def pol_mag_to_dout_acc(
-    ori_dout: Path,
-    result_path: Path,
-    polarity_picks: Path,
-    magnitude_events: Path,
-    magnitude_picks: Path,
-    output_path=GAFOCAL_DIR,
-):
-    """
-    Combining polarity and magnitude information into dout.
-    """
-    df_pol = pd.read_csv(polarity_picks)
-    df_mag_event = pd.read_csv(magnitude_events)
-    df_mag_pick = pd.read_csv(magnitude_picks)
-    output_dout = output_path / f'{ori_dout.name}'
-    with open(ori_dout) as r:
-        lines = r.readlines()
-    with open(output_dout, 'w') as fo:
-        h3dd_event_index = -1
-        for line in lines:
-            if line.strip().split()[-1] == '3DD':
-                h3dd_event_index += 1
-                event_mag = round(
-                    df_mag_event[
-                        df_mag_event['h3dd_event_index'] == h3dd_event_index
-                    ]['magnitude'].iloc[0],
-                    2,
-                )
+        elif line[35:39] == '1.00':
+            station = line[:5].strip()
+            try:
+                polarity = df_pol[
+                    (df_pol['h3dd_event_index'] == h3dd_event_index) &
+                    (df_pol['station_id'] == station) &
+                    (df_pol['phase_type'] == 'P')
+                ]['polarity'].iloc[0]
+                polarity = '+' if polarity == 'U' else ('-' if polarity == 'D' else ' ')
+            except IndexError:
+                polarity = ' '
+            
+            result.append(f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 0.00 0   0.0\n')
+        else:
+            result.append(line)
+    
+    return result
 
-                fo.write(f'{line[:40]}{event_mag:4.2f}{line[44:]}')
-            elif line[35:39] == '1.00':
-                station = line[:5].strip()
-                sta_mag = round(
-                    df_mag_pick[
-                        (df_mag_pick['h3dd_event_index'] == h3dd_event_index)
-                        & (df_mag_pick['station_id'] == station)
-                    ]['magnitude'].iloc[0],
-                    2,
-                )
-                #TODO: There might exist the waveform skip in polarity process, find out why.
-                try:
-                    polarity = df_pol[
-                        (
-                            df_pol['h3dd_event_index'] == h3dd_event_index
-                        )
-                        & (df_pol['station_id'] == station)
-                    ]['polarity'].iloc[0]
-                except IndexError as e:
-                    polarity = 'x'
-                    # logging.info(f'H3DD event_{h3dd_event_index}: {station} no polarity picks {e}')
-                if polarity == 'U':
-                    polarity = '+'
-                elif polarity == 'D':
-                    polarity = '-'
-                else:
-                    polarity = ' '
+def pol_mag_to_dout(
+    ori_dout,
+    df_pol: pd.DataFrame,
+    output_dout,
+    df_mag_event=pd.DataFrame(),
+    df_mag_pick=pd.DataFrame(),    
+    processes=min(20, os.cpu_count() / 2),
+    n_chunks=8
+    ):
+    def _split_file_by_events(filepath, n_chunks):
+        """Split file into chunks, each starting with an event line"""
+        with open(filepath) as f:
+            lines = f.readlines()
+        
+        # Find event boundaries (lines ending with '3DD')
+        event_indices = [i for i, line in enumerate(lines) 
+                        if line.strip().endswith('3DD')]
+        event_indices.append(len(lines))
+        print(f"we have {len(event_indices)-1} events in total.")
 
-                fo.write(
-                    f'{line[:19]}{polarity}{line[20:55]} 0.00 0.00 0.00 {sta_mag:4.2f} 0   0.0\n'
-                )
-    os.system(f"cp {output_dout} {result_path}")
-    return ori_dout.name
+        # Distribute events across chunks
+        events_per_chunk = len(event_indices) // n_chunks
+        chunks = []
+        for i in range(n_chunks):
+            start_idx = event_indices[i * events_per_chunk]
+            end_idx = event_indices[(i + 1) * events_per_chunk] if i < n_chunks - 1 else len(lines)
+            chunks.append((lines[start_idx:end_idx], i * events_per_chunk))
+        
+        return chunks
+
+    chunks = _split_file_by_events(ori_dout, n_chunks=n_chunks)
+    start = time()
+    if df_mag_event.empty or df_mag_pick.empty:
+        print("No magnitude data provided, only updating polarity.")
+        args = [(chunk, start_idx, df_pol) for chunk, start_idx in chunks]
+        with Pool(processes) as pool:
+            results = pool.map(_process_chunk_no_mag, args)
+    else:
+        print("Magnitude data provided, updating both magnitude and polarity.")
+        args = [(chunk, start_idx, df_mag_event, df_mag_pick, df_pol) 
+                for chunk, start_idx in chunks]        
+        with Pool(processes) as pool:
+            results = pool.map(_process_chunk_full, args)
+    end = time()
+    print(f"Processing time: {end - start:.2f} seconds")
+    # Concat results
+    Path(output_dout).write_text(''.join(''.join(r) for r in results))

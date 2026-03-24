@@ -1,0 +1,36 @@
+* **********************************
+* NETWORK   (KNETWK): TW
+* STATION    (KSTNM): SM39
+* LOCATION   (KHOLE): 
+* CHANNEL   (KCMPNM): HLZ
+* CREATED           : 2022-04-21T06:41:23
+* START             : 2021-01-01T00:00:00
+* END               : 2599-12-31T23:59:59
+* DESCRIPTION       : ies
+* LATITUDE          : 24.038900 
+* LONGITUDE         : 121.591000 
+* ELEVATION         : 0.0    
+* DEPTH             : 0.0  
+* DIP               : 0.0  
+* AZIMUTH           : 0.0  
+* SAMPLE RATE       : 100.0
+* INPUT UNIT        : M
+* OUTPUT UNIT       : COUNTS
+* INSTTYPE          : Titan, DC to 430 Hz, 20V differential full scale v
+* INSTGAIN          : 1.020000e+00 (M/S**2)
+* COMMENT           : X
+* SENSITIVITY       : 4.080000e+05 (M/S**2)
+* A0                : 1.007730e+18
+* **********************************
+ZEROS	3
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+	-5.150000e+02	+0.000000e+00
+POLES	6
+	-9.770000e+02	+3.280000e+02
+	-9.770000e+02	-3.280000e+02
+	-1.486000e+03	+2.512000e+03
+	-1.486000e+03	-2.512000e+03
+	-5.736000e+03	+4.946000e+03
+	-5.736000e+03	-4.946000e+03
+CONSTANT	+4.111539e+23

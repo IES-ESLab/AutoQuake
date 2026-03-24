@@ -1,0 +1,34 @@
+* **********************************
+* NETWORK   (KNETWK): TW
+* STATION    (KSTNM): NDS
+* LOCATION   (KHOLE): 00
+* CHANNEL   (KCMPNM): HH1
+* CREATED           : 2019-03-11T03:10:36
+* START             : 2015-02-06T00:00:00
+* END               : 2599-12-31T23:59:59
+* DESCRIPTION       : Dongshan
+* LATITUDE          : 24.634000 
+* LONGITUDE         : 121.716800 
+* ELEVATION         : 150.0  
+* DEPTH             : 180.0
+* DIP               : 90.0 
+* AZIMUTH           : 0.0  
+* SAMPLE RATE       : 100.0
+* INPUT UNIT        : M
+* OUTPUT UNIT       : COUNTS
+* INSTTYPE          : KS2000, 120 s, 2000 V/m/s-null
+* INSTGAIN          : 2.172000e+03 (M/S)
+* COMMENT           : 184 2216
+* SENSITIVITY       : 6.599190e+08 (M/S)
+* A0                : 9.853340e+04
+* **********************************
+ZEROS	3
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+POLES	4
+	-3.600000e-02	+3.800000e-02
+	-3.600000e-02	-3.800000e-02
+	-2.220000e+02	+2.220000e+02
+	-2.220000e+02	-2.220000e+02
+CONSTANT	+6.502406e+13

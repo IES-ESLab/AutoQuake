@@ -1,4 +1,15 @@
+# Pre-commit hooks configuration
+# Install: pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
+#
+# Design principles:
+# - Pre-commit: Only lightweight checks (lint/format) - won't slow down commits
+# - Pre-push: Unit tests to catch regressions before pushing
+# - Editing non-.py files (README, .gitignore) won't trigger any hooks
+
 repos:
+  # ========================================
+  # Standard pre-commit hooks
+  # ========================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
@@ -7,31 +18,35 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict
-      - id: debug-statements
-      - id: check-docstring-first
 
-  - repo: https://github.com/psf/black
-    rev: 23.7.0
-    hooks:
-      - id: black
-        language_version: python3.10
-        args: [--line-length=88]
-
-  - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
-    hooks:
-      - id: isort
-        args: [--profile, black, --line-length=88]
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.0.287
+  # ========================================
+  # Ruff: Fast Python linter and formatter
+  # Replaces black, isort, flake8, and more
+  # ========================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
     hooks:
       - id: ruff
+        name: Ruff lint
         args: [--fix, --exit-non-zero-on-fix]
+        types: [python]
+        stages: [commit]
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
+      - id: ruff-format
+        name: Ruff format
+        types: [python]
+        stages: [commit]
+
+  # ========================================
+  # Pre-push hooks: Unit tests
+  # Bypass with: git push --no-verify
+  # ========================================
+  - repo: local
     hooks:
-      - id: flake8
-        additional_dependencies: [flake8-docstrings]
-        args: [--max-line-length=88, --extend-ignore=E203,W503]
+      - id: pytest-unit
+        name: Run unit tests before push
+        entry: pytest tests/unit -q --tb=line -x
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [push]

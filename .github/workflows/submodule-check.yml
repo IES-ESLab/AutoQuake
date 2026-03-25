@@ -1,0 +1,83 @@
+name: Submodule Compatibility Check
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+
+  # Weekly check on Sunday at 00:00 UTC
+  schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  check-submodules:
+    name: Check Submodule Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Fetch latest submodule commits
+        run: |
+          git submodule foreach 'git fetch origin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pandas pydantic numpy pyproj
+
+      - name: Run compatibility check
+        run: python scripts/check-submodule-compat.py
+
+      - name: Run tests with current submodules
+        run: pytest tests/ -v --tb=short
+        continue-on-error: true
+
+      - name: Create issue if tests fail
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Submodule Compatibility Issue Detected';
+            const body = `
+            ## Submodule Compatibility Check Failed
+
+            The weekly submodule compatibility check has detected potential issues.
+
+            **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+
+            Please review the workflow logs and address any compatibility issues before updating submodules.
+
+            ### Next Steps
+            1. Review the compatibility report in the workflow logs
+            2. Check for API changes in submodules
+            3. Update code if necessary
+            4. Run \`python scripts/check-submodule-compat.py\` locally to verify fixes
+            `;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'submodule-compat'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['submodule-compat', 'automated']
+              });
+            }

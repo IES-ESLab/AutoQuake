@@ -1,0 +1,74 @@
+{
+    "configs": [
+        {
+            "name": "test_sac_flow",
+            "result_path": "./test_results/sac_flow",
+            "PhaseNet": {
+                "enabled": true,
+                "start": "20240401",
+                "end": "20240402",
+                "data_parent_dir": "./tests/fixtures/sac_data",
+                "station_csv": "./tests/fixtures/station.csv",
+                "result_path": "./test_results/sac_flow",
+                "format": "SAC",
+                "model": "phasenet",
+                "device": "cpu"
+            },
+            "GaMMA": {
+                "enabled": false
+            },
+            "H3DD": {
+                "enabled": false
+            },
+            "Mag": {
+                "enabled": true,
+                "sac_parent_dir": "./tests/fixtures/sac_data",
+                "pz_dir": "./tests/fixtures/pz_data",
+                "station": "./tests/fixtures/station.csv"
+            },
+            "Diting": {
+                "enabled": true,
+                "sac_parent_dir": "./tests/fixtures/sac_data"
+            },
+            "Focal": {
+                "enabled": false
+            }
+        },
+        {
+            "name": "test_csv_flow",
+            "result_path": "./test_results/csv_flow",
+            "PhaseNet": {
+                "enabled": false
+            },
+            "GaMMA": {
+                "enabled": true,
+                "picks_csv": "./tests/fixtures/phasenet_picks.csv",
+                "station": "./tests/fixtures/station.csv",
+                "velocity_model": null,
+                "center": [121.5, 24.0],
+                "xlim_degree": [120.5, 122.5],
+                "ylim_degree": [23.0, 25.0]
+            },
+            "H3DD": {
+                "enabled": true,
+                "station": "./tests/fixtures/station.csv",
+                "model_3D": null,
+                "runs": {
+                    "first": {
+                        "event_name": "test_events",
+                        "cutoff_distances": 30.0
+                    }
+                }
+            },
+            "Mag": {
+                "enabled": false
+            },
+            "Diting": {
+                "enabled": false
+            },
+            "Focal": {
+                "enabled": true
+            }
+        }
+    ]
+}

@@ -21,9 +21,10 @@
 
 gmt.history
 *.log
-*.SAC
-*.csv
+.claude
+# *.csv
 *.dout
+!/tests/fixtures/*.dout
 *.hout
 *.dat_ch
 *.P24
@@ -31,7 +32,6 @@ gmt.history
 *.gif
 *.pth
 *gamma_config.txt
-
 
 # model
 /model_phasenet

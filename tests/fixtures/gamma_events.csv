@@ -1,0 +1,2 @@
+time,magnitude,sigma_time,sigma_amp,cov_time_amp,gamma_score,num_picks,num_p_picks,num_s_picks,event_index,x(km),y(km),z(km),longitude,latitude,depth_km
+2024-04-01T01:19:37.052,999,0.94025,0,0,27.00000,26,15,11,0,-49.00778,-84.49000,0.48835,121.14616,23.23638,0.48835

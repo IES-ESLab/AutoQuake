@@ -1,0 +1,3 @@
+year,month,day,time,total_seconds,longitude,latitude,depth_km,h3dd_event_index,magnitude
+2024,4,1,2024-04-01T10:00:05.00,36005.0,121.5,24.5,10.0,0,3.5
+2024,4,1,2024-04-01T11:30:10.00,41410.0,121.6,24.6,15.0,1,4.2

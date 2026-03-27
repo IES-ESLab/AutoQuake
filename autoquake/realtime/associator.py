@@ -111,6 +111,7 @@ class RealtimeGaMMA:
             pick_buffer=pick_buffer,
             publisher=publisher,
             validator=validator,
+            realtime=config.realtime,
             center=config.center,
             xlim_degree=config.xlim_degree,
             ylim_degree=config.ylim_degree,
@@ -206,9 +207,10 @@ class RealtimeGaMMA:
         # Process results
         valid_events = self._process_results(events_df, picks_result)
 
-        # Recycle unassociated picks
-        unassociated = picks_result[picks_result['event_index'] < 0]
+        # Recycle unassociated picks (drop GaMMA output columns before returning to buffer)
+        unassociated = picks_result[picks_result['event_index'] == -1]
         if not unassociated.empty:
+            unassociated = unassociated.drop(columns=['event_index', 'gamma_score'], errors='ignore')
             self.pick_buffer.recycle(unassociated)
             logger.debug(f'Recycled {len(unassociated)} unassociated picks')
 

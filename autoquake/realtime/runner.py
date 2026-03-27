@@ -96,6 +96,7 @@ class RealtimeRunner:
             min_p_picks_per_eq=self.config.min_p_picks_per_eq,
             min_s_picks_per_eq=self.config.min_s_picks_per_eq,
             max_sigma11=self.config.max_sigma11,
+            realtime=self.config.realtime,
         )
 
         # Relocator (H3DD)

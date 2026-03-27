@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 logger = logging.getLogger(__name__)
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,7 @@ class GaMMA:
         dbscan_eps: float | None = None,
         ncpu=35,
         ins_type='seis',
+        realtime=False,
         min_picks_per_eq=8,
         min_p_picks_per_eq=6,
         min_s_picks_per_eq=2,
@@ -103,6 +105,7 @@ class GaMMA:
         self.dbscan_eps = dbscan_eps
         self.ncpu = ncpu
         self.ins_type = ins_type
+        self.realtime = realtime
         self.min_picks_per_eq = min_p_picks_per_eq + min_s_picks_per_eq
         self.min_p_picks_per_eq = min_p_picks_per_eq
         self.min_s_picks_per_eq = min_s_picks_per_eq
@@ -297,6 +300,7 @@ class GaMMA:
     def run_predict(self):
         self.config_gamma()
         self.df_picks = self._check_pickings()
+        suffix = f'_{datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")}' if self.realtime else ''
         # logging.info(f'picks_num: {self.df_picks.head(10)}')
         event_idx0 = 0  ## current earthquake index
         assignments = []
@@ -319,7 +323,7 @@ class GaMMA:
         )
         events['depth_km'] = events['z(km)']
 
-        self.events = self.result_path / 'gamma_events.csv'
+        self.events = self.result_path / f'gamma_events{suffix}.csv'
         events.to_csv(
             self.events,
             index=False,
@@ -347,7 +351,7 @@ class GaMMA:
             inplace=True,
         )
 
-        self.picks = self.result_path / 'gamma_picks.csv'
+        self.picks = self.result_path / f'gamma_picks{suffix}.csv'
         picks.to_csv(
             self.picks,
             index=False,

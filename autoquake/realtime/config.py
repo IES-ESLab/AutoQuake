@@ -22,6 +22,7 @@ class RealtimeConfig(BaseModel):
     max_pick_age_seconds: float = Field(default=120.0, description='Maximum age for picks in buffer')
 
     # GaMMA settings
+    realtime: bool = True
     center: tuple[float, float] | None = None
     xlim_degree: list[float] | None = None
     ylim_degree: list[float] | None = None

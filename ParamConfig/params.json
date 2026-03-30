@@ -72,7 +72,7 @@
         "h5_parent_dir": null,
         "cpu_number": 15,
         "chunk_size": 50,
-        "das_in_data": false,
+        "das_in_data": true,
         "interval": 300,
         "sampling_rate": 100.0,
         "need_resample": false

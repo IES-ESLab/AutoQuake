@@ -9,11 +9,17 @@ from datetime import datetime, timedelta
 
 def default_type_judge(x: str):
     """
-    This is for DitingMotion to judge the type of station.
-    For example, under the scenario here, True means the station is a seismometer,\
-    and False means the station is a DAS channel.
+    Placeholder for DitingMotion station-type judge.
+    User should customize this function for their own station naming rule.
+
+    Return convention:
+    - True: seismometer station
+    - False: DAS channel
     """
-    return x[1].isalpha()
+    raise NotImplementedError(
+        "Please customize default_type_judge(station_id) in ParamConfig/config_model.py "
+        "for your station naming rule when das_in_data=True."
+    )
 
 
 """
@@ -272,6 +278,18 @@ class DitingConfig(BaseModel):
     interval: int = 300
     sampling_rate: float = 100.0
     need_resample: bool = False
+
+    @model_validator(mode="after")
+    def validate_type_judge_for_das(self):
+        if self.das_in_data and self.type_judge is None:
+            raise ValueError(
+                "Diting.type_judge cannot be None when das_in_data=True. "
+                "Set a callable or customize default_type_judge()."
+            )
+        if self.das_in_data and self.type_judge is not None and self.type_judge is default_type_judge:
+            # Trigger the default placeholder at config construction time.
+            self.type_judge("STATION_ID_EXAMPLE")
+        return self
 
 class MainConfig(BaseModel):
     result_path: Path

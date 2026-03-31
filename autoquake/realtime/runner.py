@@ -143,11 +143,10 @@ class RealtimeRunner:
         Complete event processing pipeline for a single event.
 
         This method runs all refinement stages in sequence:
-        1. Preliminary magnitude (quick estimate from raw amplitudes)
-        2. H3DD relocation (precise hypocenter location)
-        3. Accurate magnitude (using relocated position)
-        4. Focal mechanism (first-motion polarity analysis)
-        5. Publish final update
+        1. H3DD relocation (precise hypocenter location)
+        2. Publish update_location message
+        3. Focal mechanism (first-motion polarity analysis)
+        4. Publish update_focal message (if focal succeeds)
 
         Args:
             event: Event dictionary from GaMMA association
@@ -157,46 +156,57 @@ class RealtimeRunner:
             Enhanced event dictionary with all refinement results
         """
         result = event.copy()
+        event_id = event.get('event_id') or event.get('global_event_index', 0)
 
         # Relocation (H3DD)
-        relocated_event = None
+        dout_file = None
+        picks_with_info = None
         if self.relocator:
             try:
-                relocated, dout_file = self.relocator.relocate_single(event, picks)
-                # write into result
+                relocated, dout_file, picks_with_info = self.relocator.relocate_single(
+                    event, picks
+                )
                 if relocated:
-                    # relocated_event = relocated
                     result['latitude_relocated'] = relocated['latitude']
                     result['longitude_relocated'] = relocated['longitude']
                     result['depth_km_relocated'] = relocated['depth_km']
                     result['time_relocated'] = relocated.get('time')
-                    #FIXME: This is for temporary usage. Logically this should be the magnitude
-                    # estimated by relocated hypocenter, but it's GaMMA's hypocenter.
                     result['magnitude'] = relocated.get('magnitude')
                     logger.debug(
                         f'Relocated: {relocated["latitude"]:.4f}, '
                         f'{relocated["longitude"]:.4f}, '
                         f'{relocated["depth_km"]:.1f}km'
                     )
+
+                    # Publish update_location message
+                    self.publisher.publish_update_location(
+                        event_id=event_id,
+                        relocated_event=relocated,
+                        picks_with_info=picks_with_info if picks_with_info is not None else [],
+                    )
             except Exception as e:
                 logger.warning(f'Relocation failed: {e}')
 
         # Focal mechanism (GAFocal)
-        if self.focal_estimator:
+        if self.focal_estimator and dout_file:
             try:
                 focal = self.focal_estimator.estimate(dout_file)
                 if focal:
                     result['focal_mechanism'] = focal
                     logger.debug(
-                        f'Focal: strike={focal["strike"]:.1f}, '
-                        f'dip={focal["dip"]:.1f}, '
-                        f'rake={focal["rake"]:.1f}'
+                        f'Focal: strike={focal["strike"]}, '
+                        f'dip={focal["dip"]}, '
+                        f'rake={focal["rake"]}'
+                    )
+
+                    # Publish update_focal message
+                    self.publisher.publish_update_focal(
+                        event_id=event_id,
+                        focal=focal,
                     )
             except Exception as e:
                 logger.warning(f'Focal mechanism failed: {e}')
 
-        # Publish update with all refinements
-        self.publisher.publish_update(result)
         return result
 
     def run_simulation(

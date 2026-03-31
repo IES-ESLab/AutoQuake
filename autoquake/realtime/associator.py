@@ -284,16 +284,22 @@ class RealtimeGaMMA:
 
             # Validate and check for duplicates
             if self.validator.validate_and_register(event_dict):
-                # Assign global event index
+                # Assign global event index and generate event_id
                 self._event_counter += 1
                 event_dict['global_event_index'] = self._event_counter
+
+                # Generate event_id using publisher's method for consistency
+                if self.publisher:
+                    event_dict['event_id'] = self.publisher._generate_event_id(event_dict)
+                else:
+                    event_dict['event_id'] = f'evt_{self._event_counter:03d}'
 
                 valid_results.append((event_dict, associated_picks))
                 self._all_events.append(event_dict)
 
-                # Publish preliminary alert
+                # Publish add_event message
                 if self.publisher:
-                    self.publisher.publish_preliminary(event_dict)
+                    self.publisher.publish_add_event(event_dict, associated_picks)
 
                 logger.info(
                     f"Valid event {self._event_counter}: "

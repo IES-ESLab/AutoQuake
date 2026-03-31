@@ -263,11 +263,16 @@ class RealtimeFocalMechanism:
                 }
             )
             mask = [i for i in df.columns.tolist() if isinstance(i, str)]
-            df = df[mask]            
+            df = df[mask]
             return {
-                'strike': float(df['strike']),
-                'dip': float(df['dip']),
-                'rake': float(df['rake']),
+                'strike': int(df['strike'].iloc[0]),
+                'strike_err': int(df['strike_err'].iloc[0]),
+                'dip': int(df['dip'].iloc[0]),
+                'dip_err': int(df['dip_err'].iloc[0]),
+                'rake': int(df['rake'].iloc[0]),
+                'rake_err': int(df['rake_err'].iloc[0]),
+                'quality_index': int(df['quality_index'].iloc[0]),
+                'num_of_polarity': int(df['num_of_polarity'].iloc[0]),
             }
 
         except Exception as e:

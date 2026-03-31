@@ -262,44 +262,99 @@ class RealtimeRelocator:
                         f"{pick['seconds']:>6.2f}{'0.01':>5}{weight:>5}\n"
                     )
 
-    def _parse_dout(self, dout_file: Path) -> pd.DataFrame | None:
-        """Parse H3DD dout output file."""
+
+    def _parse_dout_picks(self, dout_file: Path) -> pd.DataFrame | None:
+        """
+        Parse H3DD dout file to extract pick-level information.
+
+        Extracts station_id, phase_type, distance, azimuth, and takeoff_angle
+        for each pick in the dout file.
+
+        Args:
+            dout_file: Path to the .dout file
+
+        Returns:
+            DataFrame with pick info or None if parsing fails
+        """
         if not dout_file.exists():
-            logger.warning(f'H3DD output not found: {dout_file}')
+            logger.warning(f'H3DD dout not found: {dout_file}')
             return None
 
-        events = []
+        # Load station info for elevation lookup
+        df_station = pd.read_csv(self.station_file)
+        station_elevation = {
+            row['station']: row.get('elevation', 0)
+            for _, row in df_station.iterrows()
+        }
+
+        picks = []
+        current_event_time = None
+        current_hour = 0
+        current_min = 0
+
         with open(dout_file) as f:
             for line in f:
-                if line.strip()[0].isdigit():
+                line_stripped = line.strip()
+                if not line_stripped:
+                    continue
+
+                # Event line starts with digit
+                if line_stripped[0].isdigit():
                     year = int(line[1:5].strip())
                     month = int(line[5:7].strip())
                     day = int(line[7:9].strip())
-                    hour = int(line[9:11].strip())
-                    min = int(line[11:13].strip())
+                    current_hour = int(line[9:11].strip())
+                    current_min = int(line[11:13].strip())
                     sec = float(line[13:19].strip())
-                    # total_seconds = hour * 3600 + min * 60 + sec
-                    utctime = f'{year:4}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:05.2f}'
-                    lat_part = line[19:26].strip()
-                    lon_part = line[26:34].strip()
-                    event_lon = round(dmm_trans(lon_part), 3)
-                    event_lat = round(dmm_trans(lat_part), 3)
-                    depth = line[34:40].strip()
+                    current_event_time = (
+                        f'{year:4}-{month:02}-{day:02}T'
+                        f'{current_hour:02}:{current_min:02}:{sec:05.2f}'
+                    )
+                else:
+                    # Pick line
+                    station = line[1:5].strip()
+                    if not station:
+                        continue
 
-                    events.append({
-                        'time': utctime,
-                        'latitude': event_lat,
-                        'longitude': event_lon,
-                        'depth_km': float(depth),
-                    })
+                    try:
+                        dist = float(line[5:11].strip())
+                        azimuth = int(line[12:15].strip())
+                        takeoff_angle = int(line[16:19].strip())
+                        phase_min = int(line[20:23].strip())
 
+                        # Determine phase type from weights
+                        p_weight = line[35:39].strip()
+                        s_weight = line[51:55].strip()
 
-        if not events:
+                        if p_weight == '1.00':
+                            phase_sec = float(line[23:29].strip())
+                            phase_type = 'P'
+                        elif s_weight == '1.00':
+                            phase_sec = float(line[40:45].strip())
+                            phase_type = 'S'
+                        else:
+                            continue  # Skip if neither P nor S
+
+                        # Get elevation
+                        elevation = station_elevation.get(station, 0) / 1000  # m to km
+
+                        picks.append({
+                            'station_id': station,
+                            'phase_type': phase_type,
+                            'dist': dist,
+                            'azimuth': azimuth,
+                            'takeoff_angle': takeoff_angle,
+                            'elevation': elevation,
+                        })
+
+                    except (ValueError, IndexError) as e:
+                        logger.debug(f'Failed to parse pick line: {e}')
+                        continue
+
+        if not picks:
             return None
 
-        df = pd.DataFrame(events)
-
-        return df[['time', 'latitude', 'longitude', 'depth_km']]
+        return pd.DataFrame(picks)
 
     def _parse_hout(self, hout_file: Path) -> pd.DataFrame | None:
         """
@@ -416,7 +471,7 @@ class RealtimeRelocator:
 
     def relocate_single(
         self, event: dict, picks: list[dict]
-    ) -> tuple(dict | None, Path | None):
+    ) -> tuple[dict | None, Path | None, pd.DataFrame | None]:
         """
         Relocate a single event.
 
@@ -425,7 +480,10 @@ class RealtimeRelocator:
             picks: List of pick dictionaries
 
         Returns:
-            Relocated event dictionary or None
+            Tuple of (relocated_event, dout_file, picks_with_info)
+            - relocated_event: dict with updated location or None
+            - dout_file: Path to dout file for focal mechanism
+            - picks_with_info: DataFrame with distance, azimuth, takeoff_angle
         """
         events_df = pd.DataFrame([{
             'time': event.get('time') or event.get('origin_time'),
@@ -435,23 +493,28 @@ class RealtimeRelocator:
         }])
 
         picks_df = pd.DataFrame(picks)
-        # if 'event_index' not in picks_df.columns:
-        #     picks_df['event_index'] = 0
 
         result, dout_file = self.relocate(events_df, picks_df)
 
         if result is not None and not result.empty:
             row = result.iloc[0]
-            
-            return {
+
+            relocated_event = {
                 'time': row['time'],
                 'latitude': row['latitude'],
                 'longitude': row['longitude'],
                 'depth_km': row['depth_km'],
-                'magnitude': row['magnitude']
-            }, dout_file
+                'magnitude': row['magnitude'],
+            }
 
-        return None, None
+            # Parse pick-level info from dout
+            picks_info = None
+            if dout_file and dout_file.exists():
+                picks_info = self._parse_dout_picks(dout_file)
+
+            return relocated_event, dout_file, picks_info
+
+        return None, None, None
 
     @property
     def stats(self) -> dict:

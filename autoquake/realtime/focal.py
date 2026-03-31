@@ -208,6 +208,9 @@ class RealtimeFocalMechanism:
 
             # Open the file and analyze each line
             with open(file_path) as file:
+                # if it's an empty file, return 0
+                # if not file.read():
+                #     return 0
                 for line in file:
                     # Split the line using the space delimiter and count the columns
                     columns_in_line = len(line.split())
@@ -233,7 +236,9 @@ class RealtimeFocalMechanism:
 
         try:
             max_columns = _get_max_columns(results_file)
-
+            if max_columns == 0:
+                logger.info('results.txt is empty, no focal mechanism solution.')
+                return None                
             cols_to_read = list(range(max_columns - 1))
             df = pd.read_csv(
                 results_file,

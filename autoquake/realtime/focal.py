@@ -11,6 +11,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+import shutil
 
 import pandas as pd
 
@@ -123,31 +124,23 @@ class RealtimeFocalMechanism:
 
     def estimate(
         self,
-        event: dict,
-        picks: list[dict],
+        dout_file: Path,
     ) -> dict | None:
         """
-        Estimate focal mechanism for an event.
-
-        Args:
-            event: Event dictionary with time, latitude, longitude, depth_km
-            picks: List of pick dictionaries with phase_polarity
-
-        Returns:
-            Focal mechanism dictionary with strike, dip, rake or None
+        Estimate focal mechanism for an event by directly use their dout file.
         """
-        # Extract valid polarities
-        polarity_picks = self.extract_polarities(picks)
-
-        if len(polarity_picks) < self.min_polarities:
-            logger.info(
-                f'Insufficient polarities: {len(polarity_picks)} < {self.min_polarities}'
-            )
+        # copy dout file to gafocal dir
+        temp_dout = self.gafocal_dir / dout_file.name
+        result_txt = self.gafocal_dir / 'results.txt'
+        try:
+            shutil.copy(dout_file, temp_dout)
+        except Exception as e:
+            logger.error(f'Failed to copy dout file: {e}')
             return None
-
         # Prepare GAfocal input
         try:
-            result = self._run_gafocal(event, polarity_picks)
+            result = self._run_gafocal(temp_dout.name)
+            result_txt.unlink(missing_ok=True)
         except Exception as e:
             logger.error(f'GAfocal failed: {e}')
             return None
@@ -159,8 +152,7 @@ class RealtimeFocalMechanism:
 
     def _run_gafocal(
         self,
-        event: dict,
-        polarity_picks: list[dict],
+        dout_file_name: str,
     ) -> dict | None:
         """
         Run GAfocal executable.
@@ -172,77 +164,11 @@ class RealtimeFocalMechanism:
         Returns:
             Focal mechanism dictionary or None
         """
-        # Create temporary input file
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.dout',
-            dir=self.gafocal_dir,
-            delete=False,
-        ) as f:
-            temp_dout = Path(f.name)
-
-            # Write event header
-            event_time = pd.to_datetime(event.get('time') or event.get('origin_time'))
-            ymd = event_time.strftime('%Y%m%d')
-            hour = event_time.hour
-            minute = event_time.minute
-            seconds = event_time.second + event_time.microsecond / 1_000_000
-
-            lat = event['latitude']
-            lon = event['longitude']
-            depth = event.get('depth_km', 10.0)
-
-            # Convert to degrees and minutes format
-            lat_int = int(lat)
-            lat_min = (lat - lat_int) * 60
-            lon_int = int(lon)
-            lon_min = (lon - lon_int) * 60
-
-            f.write(
-                f'{ymd:>9}{hour:>2}{minute:>2}{seconds:>6.2f}'
-                f'{lat_int:>3}{lat_min:>5.2f}{lon_int:>4}{lon_min:>5.2f}'
-                f'{depth:>6.2f}  0  0  0.00  0.00\n'
-            )
-
-            # Write polarity picks
-            for pick in polarity_picks:
-                station_id = pick['station_id']
-                polarity = pick['polarity']
-
-                # Get station coordinates
-                if station_id in self._station_coords:
-                    sta_info = self._station_coords[station_id]
-                else:
-                    # Try to extract short station name
-                    short_name = station_id.split('.')[-1] if '.' in station_id else station_id
-                    if short_name in self._station_coords:
-                        sta_info = self._station_coords[short_name]
-                    else:
-                        continue
-
-                # Calculate azimuth and takeoff angle
-                # (simplified - GAfocal will recalculate)
-                azimuth = self._calculate_azimuth(
-                    event['latitude'], event['longitude'],
-                    sta_info['latitude'], sta_info['longitude'],
-                )
-
-                # Simple takeoff angle estimate based on distance and depth
-                dist = self._calculate_distance(
-                    event['latitude'], event['longitude'],
-                    sta_info['latitude'], sta_info['longitude'],
-                )
-                takeoff = self._estimate_takeoff_angle(dist, depth)
-
-                f.write(
-                    f'{station_id:<6}{azimuth:>6.1f}{takeoff:>6.1f} {polarity}\n'
-                )
-
         # Run GAfocal
         try:
             result = subprocess.run(
                 ['./gafocal'],
-                input=temp_dout.name.encode() + b'\n',
+                input=dout_file_name.encode() + b'\n',
                 cwd=self.gafocal_dir,
                 capture_output=True,
                 timeout=30,
@@ -258,14 +184,11 @@ class RealtimeFocalMechanism:
         except FileNotFoundError:
             logger.error('GAfocal executable not found')
             return None
-        finally:
-            # Clean up temp file
-            if temp_dout.exists():
-                temp_dout.unlink()
 
         # Parse results
         results_file = self.gafocal_dir / 'results.txt'
         if not results_file.exists():
+            logger.info("GAfocal did not solve the focal mechanism.")
             return None
 
         return self._parse_gafocal_results(results_file)
@@ -280,118 +203,76 @@ class RealtimeFocalMechanism:
         Returns:
             Focal mechanism dictionary or None
         """
+        def _get_max_columns(file_path):
+            max_columns = 0
+
+            # Open the file and analyze each line
+            with open(file_path) as file:
+                for line in file:
+                    # Split the line using the space delimiter and count the columns
+                    columns_in_line = len(line.split())
+                    # Update max_columns if this line has more columns
+                    if columns_in_line > max_columns:
+                        max_columns = columns_in_line
+
+            return max_columns 
+
+        def _check_hms_gafocal(hms: str):
+            """
+            check whether the gafocal format's second overflow
+            """
+            minute = int(hms[3:5])
+            second = int(hms[6:8])
+
+            if second >= 60:
+                minute += second // 60
+                second = second % 60
+
+            fixed_hms = hms[:3] + f'{minute:02d}' + hms[5:6] + f'{second:02d}'
+            return fixed_hms
+
         try:
-            with open(results_file) as f:
-                lines = f.readlines()
+            max_columns = _get_max_columns(results_file)
 
-            if not lines:
-                return None
-
-            # Parse the last result (most recent)
-            last_line = lines[-1].strip()
-            parts = last_line.split()
-
-            if len(parts) < 3:
-                return None
-
+            cols_to_read = list(range(max_columns - 1))
+            df = pd.read_csv(
+                results_file,
+                sep=r'\s+',
+                header=None,
+                dtype={0: 'str', 1: 'str'},
+                usecols=cols_to_read,
+            )
+            df[1] = df[1].apply(_check_hms_gafocal)
+            df['time'] = df[0].apply(lambda x: x.replace('/', '-')) + 'T' + df[1]
+            for col in [6, 8, 10]:
+                df[col] = df[col].map(lambda x: int(x.split('+')[0]))
+            df = df.rename(
+                columns={
+                    2: 'longitude',
+                    3: 'latitude',
+                    4: 'depth_km',
+                    5: 'magnitude',
+                    6: 'strike',
+                    7: 'strike_err',
+                    8: 'dip',
+                    9: 'dip_err',
+                    10: 'rake',
+                    11: 'rake_err',
+                    12: 'quality_index',
+                    13: 'num_of_polarity',
+                }
+            )
+            mask = [i for i in df.columns.tolist() if isinstance(i, str)]
+            df = df[mask]            
             return {
-                'strike': float(parts[0]),
-                'dip': float(parts[1]),
-                'rake': float(parts[2]),
-                'misfit': float(parts[3]) if len(parts) > 3 else None,
+                'strike': float(df['strike']),
+                'dip': float(df['dip']),
+                'rake': float(df['rake']),
             }
 
         except Exception as e:
             logger.error(f'Error parsing GAfocal results: {e}')
             return None
-
-    def _calculate_azimuth(
-        self,
-        lat1: float,
-        lon1: float,
-        lat2: float,
-        lon2: float,
-    ) -> float:
-        """
-        Calculate azimuth from point 1 to point 2.
-
-        Args:
-            lat1, lon1: Source (event) coordinates
-            lat2, lon2: Target (station) coordinates
-
-        Returns:
-            Azimuth in degrees (0-360)
-        """
-        import math
-
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        dlon_rad = math.radians(lon2 - lon1)
-
-        x = math.sin(dlon_rad) * math.cos(lat2_rad)
-        y = math.cos(lat1_rad) * math.sin(lat2_rad) - \
-            math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon_rad)
-
-        azimuth = math.degrees(math.atan2(x, y))
-
-        return (azimuth + 360) % 360
-
-    def _calculate_distance(
-        self,
-        lat1: float,
-        lon1: float,
-        lat2: float,
-        lon2: float,
-    ) -> float:
-        """
-        Calculate distance between two points in km.
-        """
-        import math
-
-        R = 6371.0
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        dlat = math.radians(lat2 - lat1)
-        dlon = math.radians(lon2 - lon1)
-
-        a = math.sin(dlat/2)**2 + \
-            math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-        return R * c
-
-    def _estimate_takeoff_angle(self, dist: float, depth: float) -> float:
-        """
-        Estimate takeoff angle based on distance and depth.
-
-        This is a simplified estimate. GAfocal will use a velocity model
-        for more accurate calculation.
-
-        Args:
-            dist: Epicentral distance in km
-            depth: Depth in km
-
-        Returns:
-            Estimated takeoff angle in degrees
-        """
-        import math
-
-        if depth <= 0:
-            depth = 0.1
-
-        # Simple geometric estimate
-        angle = math.degrees(math.atan2(dist, depth))
-
-        # Adjust for typical velocity structure
-        # (rays tend to curve due to velocity increase with depth)
-        if dist < 50:
-            angle *= 0.9
-        elif dist < 100:
-            angle *= 0.85
-        else:
-            angle *= 0.8
-
-        return min(max(angle, 0), 180)
 
     @property
     def stats(self) -> dict:

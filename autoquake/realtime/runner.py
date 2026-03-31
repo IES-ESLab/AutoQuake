@@ -4,11 +4,14 @@ Main entry point for realtime earthquake detection system.
 
 from __future__ import annotations
 
+import os
+import traceback
 import logging
 import signal
 import time
 from datetime import timedelta
 from pathlib import Path
+import pandas as pd
 from typing import TYPE_CHECKING
 
 from .associator import RealtimeGaMMA
@@ -155,28 +158,21 @@ class RealtimeRunner:
         """
         result = event.copy()
 
-        # Stage 1: Preliminary magnitude (quick estimate)
-        #NOTE: 這邊是只用amplitude來做快速的規模估算
-        if self.magnitude_estimator:
-            try:
-                prelim_mag = self.magnitude_estimator.estimate_preliminary(event, picks)
-                if prelim_mag is not None:
-                    result['magnitude_preliminary'] = round(prelim_mag, 2)
-                    logger.debug(f'Preliminary magnitude: {prelim_mag:.2f}')
-            except Exception as e:
-                logger.warning(f'Preliminary magnitude failed: {e}')
-
-        # Stage 2: Relocation (H3DD)
+        # Relocation (H3DD)
         relocated_event = None
         if self.relocator:
             try:
-                relocated = self.relocator.relocate_single(event, picks)
+                relocated, dout_file = self.relocator.relocate_single(event, picks)
+                # write into result
                 if relocated:
-                    relocated_event = relocated
+                    # relocated_event = relocated
                     result['latitude_relocated'] = relocated['latitude']
                     result['longitude_relocated'] = relocated['longitude']
                     result['depth_km_relocated'] = relocated['depth_km']
                     result['time_relocated'] = relocated.get('time')
+                    #FIXME: This is for temporary usage. Logically this should be the magnitude
+                    # estimated by relocated hypocenter, but it's GaMMA's hypocenter.
+                    result['magnitude'] = relocated.get('magnitude')
                     logger.debug(
                         f'Relocated: {relocated["latitude"]:.4f}, '
                         f'{relocated["longitude"]:.4f}, '
@@ -185,24 +181,10 @@ class RealtimeRunner:
             except Exception as e:
                 logger.warning(f'Relocation failed: {e}')
 
-        # Stage 3: Accurate magnitude (using relocated position)
-        if self.magnitude_estimator:
-            try:
-                event_for_mag = relocated_event or event
-                accurate_mag = self.magnitude_estimator.estimate_from_relocation(
-                    event_for_mag, picks
-                )
-                if accurate_mag is not None:
-                    result['magnitude'] = round(accurate_mag, 2)
-                    logger.debug(f'Final magnitude: {accurate_mag:.2f}')
-            except Exception as e:
-                logger.warning(f'Magnitude estimation failed: {e}')
-
-        # Stage 4: Focal mechanism
+        # Focal mechanism (GAFocal)
         if self.focal_estimator:
             try:
-                event_for_focal = relocated_event or event
-                focal = self.focal_estimator.estimate(event_for_focal, picks)
+                focal = self.focal_estimator.estimate(dout_file)
                 if focal:
                     result['focal_mechanism'] = focal
                     logger.debug(
@@ -213,9 +195,8 @@ class RealtimeRunner:
             except Exception as e:
                 logger.warning(f'Focal mechanism failed: {e}')
 
-        # Stage 5: Publish update with all refinements
+        # Publish update with all refinements
         self.publisher.publish_update(result)
-
         return result
 
     def run_simulation(
@@ -257,14 +238,16 @@ class RealtimeRunner:
                     self.pick_buffer.add_pick(pick)
 
                 # Full pipeline: association + refinement
+                # This process single event each time!
                 events_with_picks = self.associator.check_and_process()
                 for event, associated_picks in events_with_picks:
+                    logger.info(f'Event associated with {len(associated_picks)}')
                     refined = self._process_event_pipeline(event, associated_picks)
                     self._all_events.append(refined)
                     logger.info(
                         f"Event processed: "
                         f"M{refined.get('magnitude', '?')}, "
-                        f"depth={refined.get('depth_km_relocated', refined.get('depth_km', '?'))}km"
+                        f"depth={refined.get('depth_km_relocated', refined.get('depth_km', '?'))}km\n"
                     )
 
                 # Check duration limit
@@ -356,7 +339,9 @@ class RealtimeRunner:
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
         def handler(signum, _frame):
-            logger.info(f'Received signal {signum}')
+            logger.info(f'Received signal {signum} in PID {os.getpid()}')
+            logger.info(f'Parent PID: {os.getppid()}')
+            logger.info('Traceback:\n' + ''.join(traceback.format_stack(_frame)))
             self.stop()
 
         signal.signal(signal.SIGINT, handler)
@@ -365,7 +350,10 @@ class RealtimeRunner:
     def _save_results(self) -> None:
         """Save results before shutdown."""
         try:
-            catalog_path = self.associator.save_catalog()
+            events_df = pd.DataFrame(self._all_events)
+            if not events_df.empty:
+                catalog_path = Path(self.config.result_path) / 'rt_catalog.csv'
+                events_df.to_csv(catalog_path, index=False)
             logger.info(f'Results saved to {catalog_path}')
         except Exception as e:
             logger.error(f'Failed to save results: {e}')

@@ -80,7 +80,7 @@ class PickStreamSimulator:
         self._current_index = 0
         self._start_time = datetime.now()
         self._running = True
-        logger.info(f'Simulation started at speed {self.speed}x')
+        logger.info(f'Simulation started at speed {self.speed}x\n')
 
     def stop(self) -> None:
         """Stop the simulation."""

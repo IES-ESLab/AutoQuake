@@ -223,7 +223,7 @@ def example_with_runner():
 
     # Option A: Run simulation with existing picks (for testing)
     runner.run_simulation(
-        picks_file=Path('examples/testset/small_set.csv'),
+        picks_file=Path('examples/testset/phasenet_picks_rt.csv'),
         speed=10.0,  # 10x faster than real-time
         max_duration=None,  # Stop after 300 seconds
     )

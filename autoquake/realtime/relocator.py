@@ -13,6 +13,21 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+def dmm_trans(coord: str):
+    """
+    Convert degree and minute format (e.g., '2523.47') to decimal degrees.
+    :param coord: Coordinate in degree and minute format as a string.
+    :return: Decimal degrees as a float.
+    """
+    try:
+        # Split into degrees and minutes
+        degrees = int(coord[:-5])  # Extract the degree part (all but last 5 chars)
+        minutes = float(coord[-5:])  # Extract the minute part (last 5 chars)
+
+        # Convert to decimal degrees
+        return degrees + (minutes / 60)
+    except (ValueError, IndexError):
+        raise ValueError(f'Invalid coordinate format: {coord}')
 
 class RealtimeRelocator:
     """
@@ -166,7 +181,6 @@ class RealtimeRelocator:
         """Preprocess events and picks for H3DD format."""
         df_event = events.copy()
         df_picks = picks.copy()
-
         # Process events
         df_event['time'] = pd.to_datetime(df_event['time'])
         df_event['ymd'] = df_event['time'].dt.strftime('%Y%m%d')
@@ -190,6 +204,21 @@ class RealtimeRelocator:
             + df_picks['phase_time'].dt.microsecond / 1_000_000
         )
 
+        # write picks's magnitude into events
+        avg_mag = df_picks['magnitude'].mean()
+        if pd.isna(avg_mag):
+            logger.info("No magnitude info for this event, setting to 0.0")
+            avg_mag = 0.0
+        df_event['magnitude'] = avg_mag 
+        
+        # polarity mapping
+        POL_MAP = {
+            'U': '+',
+            'D': '-',
+            'x': ' '
+        }
+        df_picks['polarity'] = df_picks['polarity'].map(POL_MAP)
+
         return df_event, df_picks
 
     def _write_dat_ch(
@@ -199,41 +228,39 @@ class RealtimeRelocator:
         df_picks: pd.DataFrame,
     ) -> None:
         """Write events and picks in H3DD .dat_ch format."""
-        event_indices = df_event['event_index'].unique()
 
         with open(output_file, 'w') as f:
-            for idx in event_indices:
-                row = df_event[df_event['event_index'] == idx].iloc[0]
+            row = df_event.iloc[0]
 
-                # Write event line
-                f.write(
-                    f"{row['ymd']:>9}{row['hour']:>2}{row['minute']:>2}"
-                    f"{row['seconds']:>6.2f}{row['lat_int']:2}"
-                    f"{row['lat_deg']:0>5.2f}{row['lon_int']:3}"
-                    f"{row['lon_deg']:0>5.2f}{row['depth']:>6.2f}\n"
-                )
+            # Write event line
+            f.write(
+                f"{row['ymd']:>9}{row['hour']:>2}{row['minute']:>2}"
+                f"{row['seconds']:>6.2f}{row['lat_int']:2}"
+                f"{row['lat_deg']:0>5.2f}{row['lon_int']:3}"
+                f"{row['lon_deg']:0>5.2f}{row['depth']:>6.2f}{row['magnitude']:>4.2f}\n" # adding magnitude
+            )
 
-                # Write pick lines
-                event_picks = df_picks[df_picks['event_index'] == idx]
-                for _, pick in event_picks.iterrows():
-                    # Handle minute wrap-around
-                    wmm = pick['minute']
-                    if row['minute'] == 59 and pick['minute'] == 0:
-                        wmm = 60
+            # Write pick lines
+            logger.info(f"Processing event with {len(df_picks)} picks")
+            for _, pick in df_picks.iterrows():
+                # Handle minute wrap-around
+                wmm = pick['minute']
+                if row['minute'] == 59 and pick['minute'] == 0:
+                    wmm = 60
 
-                    weight = '1.00'
-                    if pick['phase_type'] == 'P':
-                        f.write(
-                            f" {pick['station_id']:<4}{'0.0':>6}{'0':>4}{'0':>4}"
-                            f"{wmm:>4}{pick['seconds']:>6.2f}{'0.01':>5}{weight:>5}"
-                            f"{'0.00':>6}{'0.00':>5}{'0.00':>5}\n"
-                        )
-                    else:  # S wave
-                        f.write(
-                            f" {pick['station_id']:<4}{'0.0':>6}{'0':>4}{'0':>4}"
-                            f"{wmm:>4}{'0.00':>6}{'0.00':>5}{'0.00':>5}"
-                            f"{pick['seconds']:>6.2f}{'0.01':>5}{weight:>5}\n"
-                        )
+                weight = '1.00'
+                if pick['phase_type'] == 'P':
+                    f.write(
+                        f" {pick['station_id']:<4}{'0.0':>6}{'0':>4}{'0':>4}{pick['polarity']:1}"
+                        f"{wmm:>3}{pick['seconds']:>6.2f}{'0.01':>5}{weight:>5}"
+                        f"{'0.00':>6}{'0.00':>5}{'0.00':>5}\n"
+                    )
+                else:  # S wave
+                    f.write(
+                        f" {pick['station_id']:<4}{'0.0':>6}{'0':>4}{'0':>4}"
+                        f"{wmm:>4}{'0.00':>6}{'0.00':>5}{'0.00':>5}"
+                        f"{pick['seconds']:>6.2f}{'0.01':>5}{weight:>5}\n"
+                    )
 
     def _parse_dout(self, dout_file: Path) -> pd.DataFrame | None:
         """Parse H3DD dout output file."""
@@ -244,38 +271,89 @@ class RealtimeRelocator:
         events = []
         with open(dout_file) as f:
             for line in f:
-                parts = line.split()
-                if len(parts) >= 10:
-                    try:
-                        events.append({
-                            'ymd': parts[0],
-                            'hour': int(parts[1]),
-                            'minute': int(parts[2]),
-                            'seconds': float(parts[3]),
-                            'latitude': float(parts[4]) + float(parts[5]) / 60,
-                            'longitude': float(parts[6]) + float(parts[7]) / 60,
-                            'depth_km': float(parts[8]),
-                        })
-                    except (ValueError, IndexError) as e:
-                        logger.debug(f'Skipping line: {line.strip()} ({e})')
-                        continue
+                if line.strip()[0].isdigit():
+                    year = int(line[1:5].strip())
+                    month = int(line[5:7].strip())
+                    day = int(line[7:9].strip())
+                    hour = int(line[9:11].strip())
+                    min = int(line[11:13].strip())
+                    sec = float(line[13:19].strip())
+                    # total_seconds = hour * 3600 + min * 60 + sec
+                    utctime = f'{year:4}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:05.2f}'
+                    lat_part = line[19:26].strip()
+                    lon_part = line[26:34].strip()
+                    event_lon = round(dmm_trans(lon_part), 3)
+                    event_lat = round(dmm_trans(lat_part), 3)
+                    depth = line[34:40].strip()
+
+                    events.append({
+                        'time': utctime,
+                        'latitude': event_lat,
+                        'longitude': event_lon,
+                        'depth_km': float(depth),
+                    })
+
 
         if not events:
             return None
 
         df = pd.DataFrame(events)
-        # Reconstruct time
-        df['time'] = pd.to_datetime(
-            df['ymd'] + df['hour'].astype(str).str.zfill(2)
-            + df['minute'].astype(str).str.zfill(2),
-            format='%Y%m%d%H%M'
-        ) + pd.to_timedelta(df['seconds'], unit='s')
 
         return df[['time', 'latitude', 'longitude', 'depth_km']]
 
+    def _parse_hout(self, hout_file: Path) -> pd.DataFrame | None:
+        """
+        Parse hout into dataframe format with header!
+        """
+        def _get_max_columns(file_path):
+            max_columns = 0
+
+            # Open the file and analyze each line
+            with open(file_path) as file:
+                for line in file:
+                    # Split the line using the space delimiter and count the columns
+                    columns_in_line = len(line.split())
+                    # Update max_columns if this line has more columns
+                    if columns_in_line > max_columns:
+                        max_columns = columns_in_line
+
+            return max_columns
+        
+        def _check_hms_h3dd(hms: str):
+            """check whether the h3dd format's second overflow"""
+            minute = int(hms[2:4])
+            second = int(hms[4:6])
+
+            if second >= 60:
+                minute += second // 60
+                second = second % 60
+
+            fixed_hms = hms[:2] + f'{minute:02d}' + f'{second:02d}' + hms[6:]
+            return fixed_hms
+
+        max_columns = _get_max_columns(hout_file)    
+        cols_to_read = list(range(max_columns - 1))
+        df = pd.read_csv(
+            hout_file,
+            sep=r'\s+',
+            header=None,
+            dtype={0: 'str', 1: 'str'},
+            usecols=cols_to_read,
+        )
+        df[1] = df[1].apply(_check_hms_h3dd)
+        df['time'] = (
+            df[0].apply(lambda x: f'{x[:4]}-{x[4:6]}-{x[6:8]}')
+            + 'T'
+            + df[1].apply(lambda x: f'{x[:2]}:{x[2:4]}:{x[4:6]}.{x[6:8]}0000')
+        )
+        df = df.rename(columns={2: 'latitude', 3: 'longitude', 4: 'depth_km', 5: 'magnitude'})
+        mask = [i for i in df.columns.tolist() if isinstance(i, str)]
+        df = df[mask]
+        return df
+                
     def relocate(
         self, events: pd.DataFrame, picks: pd.DataFrame
-    ) -> pd.DataFrame | None:
+    ) -> tuple(pd.DataFrame, Path) | None:
         """
         Relocate events using H3DD.
 
@@ -289,8 +367,6 @@ class RealtimeRelocator:
         if events.empty:
             logger.warning('No events to relocate')
             return None
-
-        logger.info(f'Relocating {len(events)} events with {len(picks)} picks')
 
         # Preprocess data
         #TODO: 這邊的preprocess要能夠把event_index帶著走，不要再多一個h3dd_event_index了
@@ -326,19 +402,21 @@ class RealtimeRelocator:
             logger.error('H3DD executable not found')
             return None
 
-        # Parse output
-        dout_file = self.h3dd_dir / 'realtime.dat_ch.dout'
-        relocated = self._parse_dout(dout_file)
+        # Parse h3dd event output (.hout)
+        hout_file = self.h3dd_dir / 'realtime.dat_ch.hout'
+        relocated = self._parse_hout(hout_file)
 
         if relocated is not None:
             self._relocation_count += len(relocated)
             logger.info(f'Relocated {len(relocated)} events')
 
-        return relocated
+        dout_file = self.h3dd_dir / 'realtime.dat_ch.dout'
+
+        return relocated, dout_file
 
     def relocate_single(
         self, event: dict, picks: list[dict]
-    ) -> dict | None:
+    ) -> tuple(dict | None, Path | None):
         """
         Relocate a single event.
 
@@ -350,7 +428,6 @@ class RealtimeRelocator:
             Relocated event dictionary or None
         """
         events_df = pd.DataFrame([{
-            'event_index': 0,
             'time': event.get('time') or event.get('origin_time'),
             'latitude': event['latitude'],
             'longitude': event['longitude'],
@@ -361,19 +438,20 @@ class RealtimeRelocator:
         # if 'event_index' not in picks_df.columns:
         #     picks_df['event_index'] = 0
 
-        result = self.relocate(events_df, picks_df)
+        result, dout_file = self.relocate(events_df, picks_df)
 
         if result is not None and not result.empty:
             row = result.iloc[0]
-            #TODO: 這邊return的可能有點少
+            
             return {
-                'time': row['time'].isoformat(),
+                'time': row['time'],
                 'latitude': row['latitude'],
                 'longitude': row['longitude'],
                 'depth_km': row['depth_km'],
-            }
+                'magnitude': row['magnitude']
+            }, dout_file
 
-        return None
+        return None, None
 
     @property
     def stats(self) -> dict:

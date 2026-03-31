@@ -217,6 +217,9 @@ def example_with_runner():
         h3dd_dir=Path('H3DD'),
         pz_dir=None,#Path('/home/patrick/Work/Hualien0403/PZ'),
         gafocal_dir=Path('GAfocal'),
+        # publish messages
+        publisher_endpoint="http://localhost:8080",
+        publisher_output_dir=Path("examples/realtime_published")
     )
 
     runner = RealtimeRunner(config)

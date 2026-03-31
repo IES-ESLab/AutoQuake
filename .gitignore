@@ -20,13 +20,14 @@
 /CWB_EDTloc_to_py_pyew_release
 /autoquake/realtime/diagrams
 /.claude
-/examples/testset
+/examples/realtime*
 # output and some text
 
 gmt.history
 *.log
 *.SAC
 *.csv
+!/examples/testset/*.csv
 *.dout
 *.hout
 *.dat_ch
@@ -58,7 +59,7 @@ relocator_temp*.py
 run_*.py
 # plot.ipynb
 
-testset*
+# testset*
 # H3DD
 # /H3DD
 !/H3DD/h3dd

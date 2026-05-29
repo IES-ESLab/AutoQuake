@@ -1,22 +1,8 @@
 /vel_model
 *__pycache__
-/test_format
-/test/seis
-/test/das
 /test
-/test_agu
-/test_fig_dir
-/Seis_20240401_20240417
-/Data_fetching
-/geo_map
-/autoquake/visualization/geo_map
-/script_to_tidy_up
-/Optimization
-/Case
-/PZ
 /ParamConfig/*.json
 /toy_data
-/h3dd_1013*
 # output and some text
 
 gmt.history
@@ -34,37 +20,15 @@ gmt.history
 *gamma_config.txt
 
 # model
-/model_phasenet
-/model_phasenet_das
+/model_phasenet_*
 
-# test file
-test*.py
-play.py
-plot_design.py
-plotter.py
-pol_test.py
-retrieve_pol.py
-tutorial.ipynb
-aso.py
-focal_test.py
-autoquake_example.ipynb
-plot_example.ipynb
-plot.ipynb
-relocator_temp*.py
-run_*.py
-# plot.ipynb
 
 testset*
 # H3DD
-# /H3DD
 !/H3DD/h3dd
-/H3DD/*.dat_ch
 /H3DD/*out
 /H3DD/h3dd.inp
 /H3DD/station.all.select
-/H3DD/src_test
-/H3DD/H3DD_temp*
-/H3DD/archive
 
 # GAfocal
 /GAfocal/results.txt

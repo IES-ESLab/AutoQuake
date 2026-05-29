@@ -22,7 +22,6 @@ gmt.history
 # model
 /model_phasenet_*
 
-
 testset*
 # H3DD
 !/H3DD/h3dd

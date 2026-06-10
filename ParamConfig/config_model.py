@@ -80,7 +80,7 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     """
     Parameters for PhaseNet (all parameters including 'mode').
     """
-    enabled: bool = True
+    enabled: bool
     data_parent_dir: Path
     station_csv: Path
     args_list: list[PhaseNetConfig] | None = None
@@ -234,7 +234,7 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     
 class GaMMAConfig(BaseModel):
     """GaMMA configuration with optional external input."""
-    enabled: bool = True
+    enabled: bool
     # External input (if skipping PhaseNet)
     picks_csv: Path | None = None
     # Required parameters (optional when enabled=False)
@@ -273,7 +273,7 @@ class H3DDRunsConfig(BaseModel):
 
 class H3DDConfig(BaseModel):
     """H3DD configuration with nested runs structure."""
-    enabled: bool = True
+    enabled: bool
     # External inputs (if skipping GaMMA)
     events_csv: Path | None = None
     picks_csv: Path | None = None
@@ -326,7 +326,7 @@ class H3DDConfig(BaseModel):
 
 class MagConfig(BaseModel):
     """Magnitude calculation configuration."""
-    enabled: bool = True
+    enabled: bool
     # External input (if skipping H3DD)
     dout_file: Path | None = None
     # Required parameters (optional when enabled=False)
@@ -349,15 +349,17 @@ class MagConfig(BaseModel):
 
 
 class DitingConfig(BaseModel):
+    enabled: bool
+    picks_csv: Path | None = None
     sac_parent_dir: Path | None = None
-    h5_parent_dir: Path | None = None
     cpu_number: int = 3
     chunk_size: int = 50
-    das_in_data: bool = False
-    type_judge: Callable[[str], bool] | None = default_type_judge
-    interval: int = 300
     sampling_rate: float = 100.0
-    need_resample: bool = False
+    need_resample: bool = False    
+    # h5_parent_dir: Path | None = None    
+    # das_in_data: bool = False
+    # type_judge: Callable[[str], bool] | None = default_type_judge
+    # interval: int = 300
 
     @model_validator(mode="after")
     def validate_type_judge_for_das(self):
@@ -384,7 +386,7 @@ class DitingConfig(BaseModel):
 
 class FocalConfig(BaseModel):
     """GAfocal configuration."""
-    enabled: bool = True
+    enabled: bool
     # External input
     dout_file: Path | None = None
 
@@ -406,93 +408,97 @@ class PathResolver:
         if explicit_path:
             path = Path(explicit_path)
             if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, phase, time等必要欄位）
                 return path
             raise FileNotFoundError(f'Explicit picks_csv not found: {explicit_path}')
 
-        # Auto-detect candidates
-        candidates = [
-            self.result_path / 'phase_picks.csv',
-            self.result_path / 'picks_phasenet.csv',
-            self.result_path / 'gamma_picks.csv',
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                logger.info(f'Auto-detected picks file: {candidate}')
-                return candidate
+        # # Auto-detect candidates
+        # candidates = [
+        #     self.result_path / 'phase_picks.csv',
+        #     self.result_path / 'picks_phasenet.csv',
+        #     self.result_path / 'gamma_picks.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected picks file: {candidate}')
+        #         return candidate
 
-        raise FileNotFoundError(
-            f'Cannot find picks CSV in {self.result_path}. '
-            f'Searched: {[c.name for c in candidates]}'
-        )
+        # raise FileNotFoundError(
+        #     f'Cannot find picks CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
 
     def resolve_gamma_picks(self, explicit_path: Path | None = None) -> Path:
         """Resolve GaMMA picks CSV file path."""
         if explicit_path:
             path = Path(explicit_path)
             if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, phase, time等必要欄位）
                 return path
             raise FileNotFoundError(f'Explicit picks_csv not found: {explicit_path}')
 
-        candidates = [
-            self.result_path / 'gamma_picks.csv',
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                logger.info(f'Auto-detected GaMMA picks file: {candidate}')
-                return candidate
+        # candidates = [
+        #     self.result_path / 'gamma_picks.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected GaMMA picks file: {candidate}')
+        #         return candidate
 
-        raise FileNotFoundError(
-            f'Cannot find GaMMA picks CSV in {self.result_path}. '
-            f'Searched: {[c.name for c in candidates]}'
-        )
+        # raise FileNotFoundError(
+        #     f'Cannot find GaMMA picks CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
 
-    def resolve_events(self, explicit_path: Path | None = None) -> Path:
-        """Resolve events CSV file path."""
+    def resolve_gamma_events(self, explicit_path: Path | None = None) -> Path:
+        """Resolve GaMMA events CSV file path."""
         if explicit_path:
             path = Path(explicit_path)
             if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, latitude, longitude, depth, origin_time等必要欄位）
                 return path
             raise FileNotFoundError(f'Explicit events_csv not found: {explicit_path}')
 
-        candidates = [
-            self.result_path / 'gamma_event.csv',
-            self.result_path / 'gamma_events.csv',
-            self.result_path / 'events.csv',
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                logger.info(f'Auto-detected events file: {candidate}')
-                return candidate
+        # candidates = [
+        #     self.result_path / 'gamma_event.csv',
+        #     self.result_path / 'gamma_events.csv',
+        #     self.result_path / 'events.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected events file: {candidate}')
+        #         return candidate
 
-        raise FileNotFoundError(
-            f'Cannot find events CSV in {self.result_path}. '
-            f'Searched: {[c.name for c in candidates]}'
-        )
+        # raise FileNotFoundError(
+        #     f'Cannot find events CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
 
     def resolve_dout(self, explicit_path: Path | None = None, event_name: str | None = None) -> Path:
         """Resolve dout file path."""
         if explicit_path:
             path = Path(explicit_path)
             if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, latitude, longitude, depth, origin_time等必要欄位）
                 return path
             raise FileNotFoundError(f'Explicit dout_file not found: {explicit_path}')
 
-        # Try with event_name first
-        if event_name:
-            candidate = self.result_path / f'{event_name}.dout'
-            if candidate.exists():
-                logger.info(f'Auto-detected dout file: {candidate}')
-                return candidate
+        # # Try with event_name first
+        # if event_name:
+        #     candidate = self.result_path / f'{event_name}.dout'
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected dout file: {candidate}')
+        #         return candidate
 
-        # Search for any .dout file
-        dout_files = list(self.result_path.glob('*.dout'))
-        if dout_files:
-            # Sort by modification time, use most recent
-            dout_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-            logger.info(f'Auto-detected dout file: {dout_files[0]}')
-            return dout_files[0]
+        # # Search for any .dout file
+        # dout_files = list(self.result_path.glob('*.dout'))
+        # if dout_files:
+        #     # Sort by modification time, use most recent
+        #     dout_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        #     logger.info(f'Auto-detected dout file: {dout_files[0]}')
+        #     return dout_files[0]
 
-        raise FileNotFoundError(f'Cannot find dout file in {self.result_path}')
+        # raise FileNotFoundError(f'Cannot find dout file in {self.result_path}')
 
 
 # =============================================================================
@@ -506,18 +512,17 @@ class RunConfig(BaseModel):
     PhaseNet: PhaseNetConfigReceiver | None = None
     GaMMA: GaMMAConfig | None = None
     H3DD: H3DDConfig | None = None
-    Magnitude: MagConfig | None = Field(default=None, alias='Mag')
-    Polarity: DitingConfig | None = Field(default=None, alias='Diting')
+    Magnitude: MagConfig | None = None
+    Polarity: DitingConfig | None = None
     Focal: FocalConfig | None = None
 
-    model_config = {'populate_by_name': True}
 
     def is_component_enabled(self, component_name: str) -> bool:
         """Check if a component is enabled."""
         component = getattr(self, component_name, None)
         if component is None:
             return False
-        return getattr(component, 'enabled', True)
+        return getattr(component, 'enabled', False) # default as False to prevent unnecessary processing.
 
     @model_validator(mode='after')
     def validate_dependencies(self):

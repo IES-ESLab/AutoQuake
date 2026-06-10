@@ -89,7 +89,7 @@
                 }
             },
 
-            "Mag": {
+            "Magnitude": {
                 "enabled": true,
                 "dout_file": null,
                 "station": "C:\\Users\\patri\\Desktop\\AutoQuake\\station.csv",
@@ -98,7 +98,7 @@
                 "cpu_number": 40
             },
 
-            "Diting": {
+            "Polarity": {
                 "enabled": true,
                 "picks_csv": null,
                 "sac_parent_dir": "test",

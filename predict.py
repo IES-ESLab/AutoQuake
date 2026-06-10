@@ -117,7 +117,7 @@ def run_pipeline(config: RunConfig) -> None:
 
         # Resolve inputs
         if gamma_events is None:
-            events_input = resolver.resolve_events(config.H3DD.events_csv)
+            events_input = resolver.resolve_gamma_events(config.H3DD.events_csv)
         else:
             events_input = gamma_events
 
@@ -165,10 +165,14 @@ def run_pipeline(config: RunConfig) -> None:
             )
             h3dd.run_h3dd()
             h3dd_dout = h3dd.get_dout()
-            h3dd_reorder_event = h3dd.get_df_reorder_event()
+
+            # Capture reorder event from first run, record original gamma_index and h3dd_index.
+            # Since the idx of events may change after later iteration.
+            if run_idx == 0:
+                h3dd_reorder_event = h3dd.get_df_reorder_event()
 
             # Prepare for next iteration if needed
-            if run_idx < run_count - 1:
+            if run_idx < run_count - 1: 
                 logging.info('Processing H3DD results for next iteration...')
                 current_events, current_picks = process_for_h3dd_twice(
                     station=config.H3DD.station,
@@ -218,24 +222,24 @@ def run_pipeline(config: RunConfig) -> None:
 
         # Determine data directory
         sac_dir = config.Polarity.sac_parent_dir
-        h5_dir = config.Polarity.h5_parent_dir
+        # h5_dir = config.Polarity.h5_parent_dir
 
-        if sac_dir:
-            dt_polarity = DitingMotion(
-                gamma_picks=picks_input,
-                output_dir=config.result_path,
-                sac_parent_dir=sac_dir,
-                type_judge=pass_type_judge
-            )
-        elif h5_dir:
-            dt_polarity = DitingMotion(
-                gamma_picks=picks_input,
-                output_dir=config.result_path,
-                h5_parent_dir=h5_dir,
-                type_judge=config.Polarity.type_judge
-            )
-        else:
-            raise ValueError('Polarity config requires either sac_parent_dir or h5_parent_dir')
+        # if sac_dir:
+        dt_polarity = DitingMotion(
+            gamma_picks=picks_input,
+            output_dir=config.result_path,
+            sac_parent_dir=sac_dir,
+            # type_judge=pass_type_judge
+        )
+        # elif h5_dir:
+        #     dt_polarity = DitingMotion(
+        #         gamma_picks=picks_input,
+        #         output_dir=config.result_path,
+        #         h5_parent_dir=h5_dir,
+        #         type_judge=config.Polarity.type_judge
+        #     )
+        # else:
+        #     raise ValueError('Polarity config requires either sac_parent_dir or h5_parent_dir')
 
         dt_polarity.run_parallel_predict(processes=config.Polarity.cpu_number)
         polarity_picks = dt_polarity.get_picks()
@@ -254,7 +258,7 @@ def run_pipeline(config: RunConfig) -> None:
             dout_input = h3dd_dout
 
         # Format conversion with polarity and magnitude
-        if polarity_picks is not None:
+        if config.is_component_enabled('Polarity') and polarity_picks is not None:
             logging.info('Format converting with polarity and magnitude...')
             dout_file_name = pol_mag_to_dout(
                 ori_dout=dout_input,
@@ -265,6 +269,8 @@ def run_pipeline(config: RunConfig) -> None:
                 magnitude_picks=mag_picks if 'mag_picks' in dir() else None
             )
         else:
+            # If you give specific dout, we suppose you already have polarity info in it.
+            #TODO: But I think we still need to check whether the format is correct.
             dout_file_name = dout_input.name
 
         gafocal = GAfocal(

@@ -333,7 +333,7 @@ class DitingMotion:
 
     def __init__(
         self,
-        gamma_picks: Path,
+        picks_csv: Path,
         model_path: Path = DITING_MODEL_PATH,
         output_dir: Path | None = None,
         sac_parent_dir: Path | None = None,
@@ -348,7 +348,7 @@ class DitingMotion:
         """Initialize DitingMotion polarity predictor.
 
         Args:
-            gamma_picks: Path to GaMMA picks CSV file.
+            picks_csv: Path to picks CSV file.
             model_path: Path to ONNX model file.
             output_dir: Output directory for results.
             sac_parent_dir: Parent directory for SAC files (seismometer data).
@@ -363,7 +363,7 @@ class DitingMotion:
                 False if DAS. Only used when das_in_data=True. If not provided when
                 das_in_data=True, all stations default to DAS.
         """
-        self.gamma_picks = Path(gamma_picks)
+        self.picks_csv = Path(picks_csv)
         self.model_path = Path(model_path)
         self.output_dir = self._setup_output_dir(output_dir)
         self.sac_parent_dir = Path(sac_parent_dir) if sac_parent_dir else None
@@ -395,12 +395,17 @@ class DitingMotion:
 
     def _load_picks(self) -> pd.DataFrame:
         """Load picks CSV once at initialization."""
-        return pd.read_csv(self.gamma_picks)
+        return pd.read_csv(self.picks_csv)
 
     def _filter_p_picks(self) -> pd.DataFrame:
         """Filter for P-phase picks with valid event indices."""
         df = self._df_picks
-        mask = (df['phase_type'] == 'P') & (df['event_index'] != -1)
+        # Supporting picks_csv with or without event_index.
+        # Because only event_index would contain -1 for invalid picks.
+        if "event_index" in df.columns:
+            mask = (df['phase_type'] == 'P') & (df['event_index'] != -1)
+        else:
+            mask = (df['phase_type'] == 'P')
         return df[mask].copy()
 
     def _compute_station_types(self) -> dict[str, bool]:

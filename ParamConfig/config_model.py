@@ -72,7 +72,6 @@ class PhaseNetConfig(BaseModel):
     dtype: str | None = None
     ptdtype: Any | None = None
     rank: int | None = None
-    world_size: int | None = None
     gpu: int | None = None
     distributed: bool | None = None
     dist_bakend: str | None = None
@@ -202,7 +201,9 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
             config_kwargs["data_path"] = data_path
             _gen_list = check_data_list(data_path, self.station_csv, self.data_list, self.format)
             config_kwargs["data_list"] = _gen_list
-            print(f"Available station on {current}: {len(_gen_list)} / {pd.read_csv(self.station_csv).shape[0]}")
+            station_count = pd.read_csv(self.station_csv).shape[0]
+            available = len(_gen_list) if _gen_list is not None else 'N/A'
+            logger.info(f"Available station on {current}: {available} / {station_count}")
             config = PhaseNetConfig(**{k: config_kwargs[k] for k in PhaseNetConfig.model_fields.keys()})
             configs.append(config)
             current = next_time
@@ -361,27 +362,27 @@ class DitingConfig(BaseModel):
     # type_judge: Callable[[str], bool] | None = default_type_judge
     # interval: int = 300
 
-    @model_validator(mode="after")
-    def validate_type_judge_for_das(self):
-        if self.das_in_data and self.type_judge is None:
-            raise ValueError(
-                "Diting.type_judge cannot be None when das_in_data=True. "
-                "Set a callable or customize default_type_judge()."
-            )
-        if self.das_in_data and self.type_judge is not None and self.type_judge is default_type_judge:
-            # Trigger the default placeholder at config construction time.
-            self.type_judge("STATION_ID_EXAMPLE")
-        return self
+    # @model_validator(mode="after")
+    # def validate_type_judge_for_das(self):
+    #     if self.das_in_data and self.type_judge is None:
+    #         raise ValueError(
+    #             "Diting.type_judge cannot be None when das_in_data=True. "
+    #             "Set a callable or customize default_type_judge()."
+    #         )
+    #     if self.das_in_data and self.type_judge is not None and self.type_judge is default_type_judge:
+    #         # Trigger the default placeholder at config construction time.
+    #         self.type_judge("STATION_ID_EXAMPLE")
+    #     return self
 
-    @model_validator(mode='after')
-    def validate_required_when_enabled(self):
-        """Validate required fields when enabled."""
-        if self.enabled:
-            if self.sac_parent_dir is None and self.h5_parent_dir is None:
-                raise ValueError(
-                    'Either sac_parent_dir or h5_parent_dir is required when Polarity is enabled'
-                )
-        return self
+    # @model_validator(mode='after')
+    # def validate_required_when_enabled(self):
+    #     """Validate required fields when enabled."""
+    #     if self.enabled:
+    #         if self.sac_parent_dir is None and self.h5_parent_dir is None:
+    #             raise ValueError(
+    #                 'Either sac_parent_dir or h5_parent_dir is required when Polarity is enabled'
+    #             )
+    #     return self
 
 
 class FocalConfig(BaseModel):
@@ -530,34 +531,59 @@ class RunConfig(BaseModel):
         # GaMMA needs picks
         if self.is_component_enabled('GaMMA'):
             if not self.is_component_enabled('PhaseNet') and not self.GaMMA.picks_csv:
-                logger.warning(
+                raise ValueError(
                     'GaMMA is enabled but PhaseNet is not, and no picks_csv provided. '
-                    'Will attempt to auto-detect picks in result_path.'
+                    'Set GaMMA.picks_csv to an explicit path or enable PhaseNet.'
                 )
 
         # H3DD needs events and picks
         if self.is_component_enabled('H3DD'):
             if not self.is_component_enabled('GaMMA'):
                 if not self.H3DD.events_csv or not self.H3DD.picks_csv:
-                    logger.warning(
+                    raise ValueError(
                         'H3DD is enabled but GaMMA is not, and events_csv/picks_csv not fully provided. '
-                        'Will attempt to auto-detect in result_path.'
+                        'Set H3DD.events_csv and H3DD.picks_csv explicitly, or enable GaMMA.'
                     )
 
         # Magnitude needs dout
         if self.is_component_enabled('Magnitude'):
             if not self.is_component_enabled('H3DD') and not self.Magnitude.dout_file:
-                logger.warning(
+                raise ValueError(
                     'Magnitude is enabled but H3DD is not, and no dout_file provided. '
-                    'Will attempt to auto-detect in result_path.'
+                    'Set Magnitude.dout_file to an explicit path, or enable H3DD.'
                 )
 
         # Polarity needs picks
         if self.is_component_enabled('Polarity'):
-            if not self.is_component_enabled('GaMMA') and not self.Polarity.picks_csv:
-                logger.warning(
-                    'Polarity is enabled but GaMMA is not, and no picks_csv provided. '
-                    'Will attempt to auto-detect in result_path.'
+            # Priority: GaMMA output > PhaseNet output > manual file.
+            # To avoid stale/wrong manual file usage, only allow manual file when
+            # both upstream producers are disabled.
+            if self.Polarity.picks_csv and (
+                self.is_component_enabled('GaMMA') or self.is_component_enabled('PhaseNet')
+            ):
+                raise ValueError(
+                    'Polarity.picks_csv can only be set when both GaMMA and PhaseNet are disabled. '
+                    'Set Polarity.picks_csv to null, or disable upstream components.'
+                )
+                        
+            if self.is_component_enabled('GaMMA'):
+                logger.info('Polarity will use picks from GaMMA output.')
+            elif self.is_component_enabled('PhaseNet'):
+                logger.info('Polarity will use picks from PhaseNet output.')
+            elif self.Polarity.picks_csv:
+                logger.info(f'Polarity will use manual picks from {self.Polarity.picks_csv}.')
+            else:
+                raise ValueError(
+                    'Polarity is enabled but no valid picks source is available. '
+                    'Please enable GaMMA or PhaseNet, or provide Polarity.picks_csv.'
+                )
+
+        # Focal needs dout + polarity information
+        if self.is_component_enabled('Focal'):
+            if not self.is_component_enabled('H3DD') and not self.is_component_enabled('Polarity') and not self.Focal.dout_file:
+                raise ValueError(
+                    'Focal is enabled but H3DD and Polarity are not, and no dout_file provided. '
+                    'Set Focal.dout_file to an explicit path, or enable H3DD and Polarity.'
                 )
 
         return self
@@ -580,30 +606,4 @@ class BatchConfig(BaseModel):
             logger.info('Detected legacy config format, converting to batch format.')
             return {'configs': [data]}
         return data
-
-
-# =============================================================================
-# Legacy MainConfig (for backward compatibility with predict.py)
-# =============================================================================
-class MainConfig(BaseModel):
-    """Legacy configuration format. Use BatchConfig for new implementations."""
-    result_path: Path
-    PhaseNet: PhaseNetConfigReceiver
-    GaMMA: GaMMAConfig
-    H3DD: H3DDConfig
-    Mag: MagConfig
-    Diting: DitingConfig
-
-    def to_run_config(self) -> RunConfig:
-        """Convert legacy MainConfig to RunConfig."""
-        return RunConfig(
-            name='legacy_config',
-            result_path=self.result_path,
-            PhaseNet=self.PhaseNet,
-            GaMMA=self.GaMMA,
-            H3DD=self.H3DD,
-            Magnitude=self.Mag,
-            Polarity=self.Diting,
-            Focal=FocalConfig(enabled=True),
-        )
 # %%

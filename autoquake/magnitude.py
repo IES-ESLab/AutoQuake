@@ -409,6 +409,8 @@ class Magnitude:
         """
         Spawn processes to run `get_mag` for multiple event indices in parallel.
         """
+        #TODO: provide direct access for gamma_events.csv and gamma_picks.csv?
+        # or we can provide a help function to combine it into dout format.
         self.df_h3dd_events, self.df_h3dd_picks = process_h3dd(
             dout_file=self.dout_file, station_info=self.station_info
         )

@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 import sys
+import pandas as pd
 from pathlib import Path
 
 from autoquake.associator import GaMMA
@@ -59,6 +60,8 @@ def run_pipeline(config: RunConfig) -> None:
     gamma_picks = None
     h3dd_dout = None
     h3dd_reorder_event = None
+    mag_events = None
+    mag_picks = None
 
     # =========================================================================
     # Phase 1: PhaseNet
@@ -84,11 +87,11 @@ def run_pipeline(config: RunConfig) -> None:
         else:
             picks_input = phase_picks
 
-        # Preprocessing
-        # post_phasenet_pickings = gamma_preprocessing(
-        #     pickings=picks_input,
-        #     output_dir=config.result_path
-        # )
+        # Preprocessing phasenet picks's station_id (e.g. "TW.SHUL.00.HL" -> "SHUL") and filter out picks with station_id not in station.csv.
+        post_phasenet_pickings = gamma_preprocessing(
+            picks=picks_input,
+            station=config.GaMMA.station,
+        )
 
         gamma = GaMMA(
             station=config.GaMMA.station,
@@ -96,7 +99,7 @@ def run_pipeline(config: RunConfig) -> None:
             center=config.GaMMA.center,
             xlim_degree=config.GaMMA.xlim_degree,
             ylim_degree=config.GaMMA.ylim_degree,
-            pickings=picks_input,
+            pickings=post_phasenet_pickings,
             vel_model=config.GaMMA.velocity_model,
             min_p_picks_per_eq=config.GaMMA.min_p_picks_per_eq,
             min_s_picks_per_eq=config.GaMMA.min_s_picks_per_eq,
@@ -214,11 +217,26 @@ def run_pipeline(config: RunConfig) -> None:
     if config.is_component_enabled('Polarity'):
         logging.info('Running DitingMotion (Polarity)...')
 
-        # Resolve picks input
-        if gamma_picks is None:
+        # Input precedence for Polarity: GaMMA > PhaseNet > explicit Polarity.picks_csv
+        # Manual file is only intended when both GaMMA and PhaseNet are disabled.
+        picks_input = None
+        if gamma_picks is not None:
+            if config.is_component_enabled('H3DD') and h3dd_reorder_event is not None:
+                # If H3DD is enabled, pass picks with mapped h3dd_event_index to DitingMotion.
+                index_map = dict(zip(h3dd_reorder_event['event_index'], h3dd_reorder_event['h3dd_index']))
+                picks_df = pd.read_csv(gamma_picks)
+                picks_df['h3dd_event_index'] = picks_df['event_index'].map(index_map).fillna(-1).astype(int)
+                picks_input = config.result_path / 'gamma_picks_with_h3dd_index.csv'
+                picks_df.to_csv(picks_input, index=False)
+            else:
+                picks_input = gamma_picks
+        elif phase_picks is not None:
+            picks_input = phase_picks
+        elif config.Polarity.picks_csv is not None:
             picks_input = resolver.resolve_gamma_picks(config.Polarity.picks_csv)
-        else:
-            picks_input = gamma_picks
+
+        if picks_input is None:
+            raise ValueError('Polarity is enabled but no picks source is available.')
 
         # Determine data directory
         sac_dir = config.Polarity.sac_parent_dir
@@ -226,7 +244,7 @@ def run_pipeline(config: RunConfig) -> None:
 
         # if sac_dir:
         dt_polarity = DitingMotion(
-            gamma_picks=picks_input,
+            picks_csv=picks_input,
             output_dir=config.result_path,
             sac_parent_dir=sac_dir,
             # type_judge=pass_type_judge
@@ -254,27 +272,34 @@ def run_pipeline(config: RunConfig) -> None:
         # Resolve dout input
         if h3dd_dout is None:
             dout_input = resolver.resolve_dout(config.Focal.dout_file)
+            
         else:
             dout_input = h3dd_dout
 
         # Format conversion with polarity and magnitude
         if config.is_component_enabled('Polarity') and polarity_picks is not None:
             logging.info('Format converting with polarity and magnitude...')
-            dout_file_name = pol_mag_to_dout(
+            if config.is_component_enabled('Magnitude'):
+                df_mag_event = pd.read_csv(mag_events)
+                df_mag_pick = pd.read_csv(mag_picks)
+
+            df_pol = pd.read_csv(polarity_picks)
+            polarity_dout_path = config.result_path / 'polarity.dout'
+            pol_mag_to_dout(
                 ori_dout=dout_input,
-                result_path=config.result_path,
-                df_reorder_event=h3dd_reorder_event,
-                polarity_picks=polarity_picks,
-                magnitude_events=mag_events if 'mag_events' in dir() else None,
-                magnitude_picks=mag_picks if 'mag_picks' in dir() else None
+                df_pol=df_pol,
+                output_dout=polarity_dout_path,
+                df_mag_event=df_mag_event,
+                df_mag_pick=df_mag_pick,
             )
+            gafocal_dout = polarity_dout_path
         else:
             # If you give specific dout, we suppose you already have polarity info in it.
             #TODO: But I think we still need to check whether the format is correct.
-            dout_file_name = dout_input.name
+            gafocal_dout = dout_input
 
         gafocal = GAfocal(
-            dout_file_name=dout_file_name,
+            dout_path=gafocal_dout,
             result_path=config.result_path
         )
         gafocal.run()

@@ -3,8 +3,8 @@
 AutoQuake CLI - Automated Earthquake Catalog Generation Pipeline
 
 Usage:
-    python main.py --config config.json
-    python main.py --config config.json --dry-run
+    python predict.py --config config.json
+    python predict.py --config config.json --dry-run
 """
 import argparse
 import json
@@ -223,7 +223,7 @@ def run_pipeline(config: RunConfig) -> None:
         if gamma_picks is not None:
             if config.is_component_enabled('H3DD') and h3dd_reorder_event is not None:
                 # If H3DD is enabled, pass picks with mapped h3dd_event_index to DitingMotion.
-                index_map = dict(zip(h3dd_reorder_event['event_index'], h3dd_reorder_event['h3dd_index']))
+                index_map = dict(zip(h3dd_reorder_event['event_index'], h3dd_reorder_event['h3dd_event_index']))
                 picks_df = pd.read_csv(gamma_picks)
                 picks_df['h3dd_event_index'] = picks_df['event_index'].map(index_map).fillna(-1).astype(int)
                 picks_input = config.result_path / 'gamma_picks_with_h3dd_index.csv'
@@ -315,9 +315,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  python main.py --config config.json
-  python main.py --config config.json --dry-run
-  python main.py -c params.json
+  python predict.py --config config.json
+  python predict.py --config config.json --dry-run
+  python predict.py -c params.json
         '''
     )
     parser.add_argument(

@@ -8,7 +8,6 @@
                 "enabled": true,
                 "data_parent_dir": "test\\less_dataset",
                 "station_csv": "station.csv",
-                "result_path": "\\archive_results",
                 "start": "20240402",
                 "end": "20240403",
                 "pz_dir": "PZ",

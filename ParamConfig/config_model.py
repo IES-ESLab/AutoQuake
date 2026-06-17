@@ -85,10 +85,6 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     args_list: list[PhaseNetConfig] | None = None
     date_list: list[str] | None = None  # New attribute to store the list of dates
 
-    def _check_result_path(self):
-        if self.result_path.exists() and any(self.result_path.iterdir()):
-            logger.warning(f"Result path '{self.result_path}' exists and is not empty.")
-
     def _time_code_checker(self):
         # stream_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"
         archive_pattern = r"^\d{8}$"
@@ -227,7 +223,6 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         - args_list \n
         - date_list
         """
-        self._check_result_path()
         self._time_code_checker()
         self.date_list = self._generate_date_list()  # Generate the date list
         self.args_list = self.generate_configs()
@@ -517,7 +512,20 @@ class RunConfig(BaseModel):
     Polarity: DitingConfig | None = None
     Focal: FocalConfig | None = None
 
+    @model_validator(mode='before')
+    @classmethod
+    def inject_result_path(cls, data: dict) -> dict:
+        """Inject pipeline result_path into PhaseNet config before construction."""
+        if isinstance(data.get('PhaseNet'), dict):
+            data['PhaseNet']['result_path'] = data['result_path']
+        return data
 
+    def _check_result_path(self):
+        if self.result_path.exists() and any(self.result_path.iterdir()):
+            logger.warning(f"Result path '{self.result_path}' exists and is not empty.")
+        else:
+            self.result_path.mkdir(parents=True, exist_ok=True)
+            
     def is_component_enabled(self, component_name: str) -> bool:
         """Check if a component is enabled."""
         component = getattr(self, component_name, None)
@@ -528,6 +536,7 @@ class RunConfig(BaseModel):
     @model_validator(mode='after')
     def validate_dependencies(self):
         """Validate that enabled components have required inputs."""
+        self._check_result_path()
         # GaMMA needs picks
         if self.is_component_enabled('GaMMA'):
             if not self.is_component_enabled('PhaseNet') and not self.GaMMA.picks_csv:

@@ -1,0 +1,113 @@
+{
+    "configs": [
+        {
+            "name": "pipeline",
+            "result_path": "./pipeline_test",
+
+            "PhaseNet": {
+                "enabled": true,
+                "data_parent_dir": "test_sac",
+                "station_csv": "station.csv",
+                "start": "20240423",
+                "end": "20240424",
+                "pz_dir": "test_pz",
+                "data_list": null,
+                "hdf5_file": null,
+                "prefix": "",
+                "format": "SAC",
+                "dataset": "das",
+                "model": "phasenet",
+                "resume": "",
+                "backbone": "unet",
+                "phases": ["P", "S"],
+                "device": "cpu",
+                "workers": 0,
+                "batch_size": 1,
+                "use_deterministic_algorithms": true,
+                "amp": true,
+                "world_size": 1,
+                "dist_url": "env://",
+                "plot_figure": false,
+                "min_prob": 0.3,
+                "add_polarity": false,
+                "add_event": true,
+                "sampling_rate": 100.0,
+                "highpass_filter": 0.0,
+                "response_path": null,
+                "response_xml": null,
+                "subdir_level": 0,
+                "cut_patch": false,
+                "nt": 20480,
+                "nx": 5120,
+                "resample_time": false,
+                "resample_space": false,
+                "system": null,
+                "location": null,
+                "skip_existing": false
+            },
+
+            "GaMMA": {
+                "enabled": true,
+                "picks_csv": null,
+                "station": "station.csv",
+                "velocity_model": "./vel_model/Hualien_1D.vel",
+                "center": [121.625, 24.0],
+                "xlim_degree": [121, 122.25],
+                "ylim_degree": [23.25, 24.75],
+                "min_p_picks_per_eq": 4,
+                "min_s_picks_per_eq": 0,
+                "eps": 17.0,
+                "cpu_number": 5,
+                "use_amplitude": false
+            },
+
+            "H3DD": {
+                "enabled": true,
+                "events_csv": null,
+                "picks_csv": null,
+                "station": "station.csv",
+                "model_3D": "./vel_model/tomops_H14",
+                "weights": [1.0, 1.0, 0.1],
+                "priori_weight": [1.0, 0.75, 0.5, 0.25, 0.0],
+                "inv": 2,
+                "damping_factor": 0.0,
+                "rmscut": 1.0e-4,
+                "max_iter": 5,
+                "constrain_factor": 0.0,
+                "joint_inv_with_single_event_method": 1,
+                "consider_elevation": 0,
+                "runs": {
+                     "first": {
+                         "event_name": "H3DD_1",
+                         "cutoff_distances": 0.0
+                     },
+                     "second": {
+                         "event_name": "H3DD_2",
+                         "cutoff_distances": 2.0
+                     }
+                }
+            },
+
+            "Magnitude": {
+                "enabled": true,
+                "dout_file": null,
+                "station": "station.csv",
+                "sac_parent_dir": "test_sac",
+                "pz_dir": "test_pz",
+                "cpu_number": 5
+            },
+
+            "Polarity": {
+                "enabled": true,
+                "picks_csv": null,
+                "sac_parent_dir": "test_sac",
+                "cpu_number": 5
+            },
+
+            "Focal": {
+                "enabled": true,
+                "dout_file": null
+            }
+        }
+    ]
+}

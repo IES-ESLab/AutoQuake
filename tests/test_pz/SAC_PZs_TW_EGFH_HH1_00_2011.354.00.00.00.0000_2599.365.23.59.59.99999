@@ -1,0 +1,36 @@
+* **********************************
+* NETWORK   (KNETWK): TW
+* STATION    (KSTNM): EGFH
+* LOCATION   (KHOLE): 00
+* CHANNEL   (KCMPNM): HH1
+* CREATED           : 2019-03-11T03:10:36
+* START             : 2011-12-20T00:00:00
+* END               : 2599-12-31T23:59:59
+* DESCRIPTION       : Guangfu
+* LATITUDE          : 23.668800 
+* LONGITUDE         : 121.427400 
+* ELEVATION         : 132.0  
+* DEPTH             : 295.0
+* DIP               : 90.0 
+* AZIMUTH           : 0.0  
+* SAMPLE RATE       : 100.0
+* INPUT UNIT        : M
+* OUTPUT UNIT       : COUNTS
+* INSTTYPE          : CMG-3T, 360 s, 2000 V/m/s-DM-24 Mk3 Fixed Gain
+* INSTGAIN          : 5.980000e+03 (M/S)
+* COMMENT           : T37078 A3391
+* SENSITIVITY       : 1.861750e+09 (M/S)
+* A0                : 4.323000e+10
+* **********************************
+ZEROS	3
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+POLES	6
+	-1.234020e-02	+1.234020e-02
+	-1.234020e-02	-1.234020e-02
+	-1.888280e+02	+1.955400e+02
+	-1.888280e+02	-1.955400e+02
+	-2.592220e+02	+7.196450e+02
+	-2.592220e+02	-7.196450e+02
+CONSTANT	+8.048345e+19

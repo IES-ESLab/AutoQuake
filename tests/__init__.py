@@ -1,1 +1,0 @@
-# AutoQuake test suite

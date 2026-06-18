@@ -10,7 +10,6 @@ gmt.history
 .claude
 # *.csv
 *.dout
-!/tests/fixtures/*.dout
 *.hout
 *.dat_ch
 *.P24

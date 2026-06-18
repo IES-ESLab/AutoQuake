@@ -12,3 +12,15 @@ select = ["E", "F", "I", "UP"]
 
 [tool.ruff.format]
 quote-style = "single"
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `ParamConfig`, `autoquake` and `predict`
+# import cleanly when pytest is run from the project root.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast, pip-only checks of the configuration layer (run anywhere)",
+    "integration: real pipeline runs needing the full conda env + binaries",
+    "slow: long-running tests (the end-to-end pipeline)",
+]

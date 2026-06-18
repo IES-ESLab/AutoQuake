@@ -6,11 +6,11 @@
 
             "PhaseNet": {
                 "enabled": true,
-                "data_parent_dir": "./tests/test_sac",
-                "station_csv": "./tests/station.csv",
+                "data_parent_dir": "test_sac",
+                "station_csv": "station.csv",
                 "start": "20240423",
                 "end": "20240424",
-                "pz_dir": "./tests/test_pz",
+                "pz_dir": "test_pz",
                 "data_list": null,
                 "hdf5_file": null,
                 "prefix": "",
@@ -49,8 +49,8 @@
             "GaMMA": {
                 "enabled": true,
                 "picks_csv": null,
-                "station": "./tests/station.csv",
-                "velocity_model": "./tests/vel_model/Hualien_1D.vel",
+                "station": "station.csv",
+                "velocity_model": "./vel_model/Hualien_1D.vel",
                 "center": [121.625, 24.0],
                 "xlim_degree": [121, 122.25],
                 "ylim_degree": [23.25, 24.75],
@@ -65,8 +65,8 @@
                 "enabled": true,
                 "events_csv": null,
                 "picks_csv": null,
-                "station": "./tests/station.csv",
-                "model_3D": "./tests/vel_model/tomops_H14",
+                "station": "station.csv",
+                "model_3D": "./vel_model/tomops_H14",
                 "weights": [1.0, 1.0, 0.1],
                 "priori_weight": [1.0, 0.75, 0.5, 0.25, 0.0],
                 "inv": 2,
@@ -91,16 +91,16 @@
             "Magnitude": {
                 "enabled": true,
                 "dout_file": null,
-                "station": "./tests/station.csv",
-                "sac_parent_dir": "./tests/test_sac",
-                "pz_dir": "./tests/test_pz",
+                "station": "station.csv",
+                "sac_parent_dir": "test_sac",
+                "pz_dir": "test_pz",
                 "cpu_number": 5
             },
 
             "Polarity": {
                 "enabled": true,
                 "picks_csv": null,
-                "sac_parent_dir": "./tests/test_sac",
+                "sac_parent_dir": "test_sac",
                 "cpu_number": 5
             },
 

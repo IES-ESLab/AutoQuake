@@ -88,7 +88,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           environment-file: env.yml
-          activate-environment: AutoQuake_new
+          activate-environment: AutoQuake
           auto-activate-base: false
 
       - name: Run end-to-end integration tests

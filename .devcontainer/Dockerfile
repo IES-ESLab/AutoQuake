@@ -52,9 +52,8 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && mkdir -p /home/$USERNAME/.vscode-server /home/$USERNAME/.vscode-server-insiders \
     && chown ${USER_UID}:${USER_GID} /home/$USERNAME/.vscode-server*
 
-# Copy environment files (use lightweight env-codespace.yml for Codespaces)
+# Copy the Codespaces environment definition (CPU torch + Jupyter).
 COPY env-codespace.yml /tmp/env.yml
-COPY requirements.txt /tmp/requirements.txt
 
 # Create conda environment with mamba and aggressive cleanup to save space
 RUN mamba env create -f /tmp/env.yml && \

@@ -73,7 +73,7 @@ class DitingMotion:
         h5_parent_dir=None,
         interval=300,
         sampling_rate=100.0,
-        need_resample=False, # this is pretty important, make sure whether the sampling rate of your instrument is 100 Hz
+        need_resample=True, # this is pretty important, make sure whether the sampling rate of your instrument is 100 Hz
     ):
         """## Using DitingMotion to predict the polarity of the P-wave
 

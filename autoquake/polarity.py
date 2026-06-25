@@ -340,7 +340,7 @@ class DitingMotion:
         h5_parent_dir: Path | None = None,
         interval: int = 300,
         sampling_rate: float = 100.0,
-        need_resample: bool = False,
+        need_resample: bool = True,
         chunk_size: int = 50,
         das_in_data: bool = False,
         type_judge: Callable[[str], bool] | None = None,

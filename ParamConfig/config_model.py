@@ -351,7 +351,7 @@ class DitingConfig(BaseModel):
     cpu_number: int = 3
     chunk_size: int = 50
     sampling_rate: float = 100.0
-    need_resample: bool = False    
+    need_resample: bool = True    
     # h5_parent_dir: Path | None = None    
     # das_in_data: bool = False
     # type_judge: Callable[[str], bool] | None = default_type_judge

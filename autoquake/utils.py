@@ -476,8 +476,18 @@ def pol_mag_to_dout(
     df_mag_event=pd.DataFrame() | None,
     df_mag_pick=pd.DataFrame() | None,
     processes=min(20, os.cpu_count() / 2),
-    n_chunks=8
+    n_chunks=8,
+    df_gamma_event: pd.DataFrame | None = None, # Support previous version
     ):
+
+    def _gen_h3dd_index_for_pol(df_pol, df_gamma_event):
+        df = df_gamma_event.sort_values(by='time', key=lambda x: pd.to_datetime(x))
+        df = df.reset_index(drop=True)
+        df['h3dd_event_index'] = df.index
+        index_map = dict(zip(df['event_index'], df['h3dd_event_index']))
+        df_pol['h3dd_event_index'] = df_pol['event_index'].map(index_map)
+        return df_pol
+    
     def _split_file_by_events(filepath, n_chunks):
         """Split file into chunks, each starting with an event line"""
         with open(filepath) as f:
@@ -498,6 +508,10 @@ def pol_mag_to_dout(
             chunks.append((lines[start_idx:end_idx], i * events_per_chunk))
         
         return chunks
+
+    if df_gamma_event is not None:
+        print("Mapping h3dd_event_index for polarity DataFrame based on df_gamma_event.")
+        df_pol = _gen_h3dd_index_for_pol(df_pol, df_gamma_event)
 
     chunks = _split_file_by_events(ori_dout, n_chunks=n_chunks)
     start = time()

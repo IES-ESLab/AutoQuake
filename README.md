@@ -12,6 +12,7 @@ AutoQuake connects every step of building an earthquake catalog into a single, c
 - [2. Prepare your data](#2-prepare-your-data)
 - [3. Configure your run](#3-configure-your-run)
 - [4. Run](#4-run)
+- [Helper function: prepare the focal input](#helper-function-prepare-the-focal-input)
 - [Submodules and External Dependencies](#submodules-and-external-dependencies)
 - [License](#license)
 - [References](#references)
@@ -63,6 +64,27 @@ python predict.py --config params.json
 ```
 
 Results and logs are written to the result directory set in your config. That's it!
+
+## Helper function: prepare the focal input
+
+The focal stage (**GAfocal**) reads its events from a `dout` file (the `dout_file` field in the `Focal` block of your config). If you are not running the full chain from the start — for example you already have relocation, polarity, and magnitude results and only want to run the focal step — you need to assemble that `dout` yourself.
+
+`autoquake/utils` provides `pol_mag_to_dout` to do exactly this: it merges first-motion polarity (and, optionally, magnitude) into an existing H3DD `dout` and writes a new `dout` in the format the focal stage expects.
+
+```python
+from autoquake.utils import pol_mag_to_dout
+
+pol_mag_to_dout(
+    ori_dout="path/to/h3dd.dout",       # H3DD relocation output
+    df_pol=df_pol,                       # polarity DataFrame (DiTingMotion)
+    output_dout="path/to/focal.dout",    # written for the focal stage
+    df_mag_event=df_mag_event,           # optional: per-event magnitude
+    df_mag_pick=df_mag_pick,             # optional: per-pick magnitude
+    df_gamma_event=None                  # optional: If your polarity result carries only the GaMMA `event_index` and no `h3dd_event_index`, pass `df_gamma_event=df_gamma_event` so the events can be mapped — kept for backward compatibility.
+)
+```
+
+Point the focal stage at the generated file by setting `"dout_file": "path/to/focal.dout"` in your config. If you have no magnitude results, leave `df_mag_event` and `df_mag_pick` as `None` and only the polarity information is written.
 
 ---
 

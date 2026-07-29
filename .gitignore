@@ -7,8 +7,8 @@
 
 gmt.history
 *.log
-*.SAC
-*.csv
+.claude
+# *.csv
 *.dout
 *.hout
 *.dat_ch
@@ -18,10 +18,8 @@ gmt.history
 *.pth
 *gamma_config.txt
 
-
 # model
 /model_phasenet_*
-
 
 testset*
 # H3DD

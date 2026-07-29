@@ -1,0 +1,38 @@
+* **********************************
+* NETWORK   (KNETWK): TW
+* STATION    (KSTNM): B090
+* LOCATION   (KHOLE): 10
+* CHANNEL   (KCMPNM): HLZ
+* CREATED           : 2024-12-30T02:09:29
+* START             : 2018-12-07T00:00:00
+* END               : 2599-12-31T23:59:59
+* DESCRIPTION       : TCU090, Tong-Tou Elementary School
+* LATITUDE          : 23.646230 
+* LONGITUDE         : 120.655890 
+* ELEVATION         : 241.0  
+* DEPTH             : 0.0  
+* DIP               : 0.0  
+* AZIMUTH           : 0.0  
+* SAMPLE RATE       : 100.0
+* INPUT UNIT        : M
+* OUTPUT UNIT       : COUNTS
+* INSTTYPE          : TitanCWB,TitanCWB, with buildin sensor Titan Accel
+* INSTGAIN          : 1.020000e+00 (M/S**2)
+* COMMENT           : N/A
+* SENSITIVITY       : 4.080000e+05 (M/S**2)
+* A0                : 1.007730e+18
+* **********************************
+ZEROS	4
+	+0.000000e+00	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+	-5.150000e+02	+0.000000e+00
+	+0.000000e+00	+0.000000e+00
+POLES	7
+	-9.770000e+02	+3.280000e+02
+	-9.770000e+02	-3.280000e+02
+	-1.486000e+03	+2.512000e+03
+	-1.486000e+03	-2.512000e+03
+	-5.736000e+03	+4.946000e+03
+	-5.736000e+03	-4.946000e+03
+	-6.283190e-03	+0.000000e+00
+CONSTANT	+4.111539e+23

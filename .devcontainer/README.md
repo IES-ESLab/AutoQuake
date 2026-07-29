@@ -20,51 +20,44 @@ This devcontainer provides a standardized development environment for the AutoQu
 
 ### Environment
 - **Python 3.10.13** with conda/mamba package management
-- **AutoQuake conda environment** with all dependencies from `env.yml`
+- **AutoQuake conda environment** built from `env-codespace.yml` (CPU-only PyTorch)
 - **Scientific computing stack**: NumPy, Pandas, SciPy, Matplotlib, ObsPy
-- **Machine Learning**: PyTorch, scikit-learn
-- **Seismology tools**: ObsPy, PyGMT, Pyrocko
-- **Development tools**: Black, isort, flake8, pre-commit
+- **Machine Learning**: PyTorch (CPU), scikit-learn, ONNX Runtime
+- **Seismology / geospatial tools**: ObsPy, PyGMT, Cartopy, pyproj
+- **Development tools**: Ruff, pre-commit
 
 ### VS Code Extensions
 - Python development suite (Python, Pylance, Jupyter)
-- Code formatting and linting (Black, Ruff, flake8)
+- Linting & formatting with Ruff
 - Git integration (GitLens, GitHub tools)
 - Documentation tools (Markdown, autodocstring)
-- Scientific computing support
 
 ### Development Tools
+- **Ruff** for linting and formatting (replaces black + isort + flake8)
 - **Pre-commit hooks** for code quality
 - **Jupyter Lab** ready to use
-- **Code formatting** with Black and isort
-- **Linting** with flake8 and Ruff
 
 ## 🛠️ Development Workflow
 
 ### Environment Activation
-The conda environment `AutoQuake_v0` is automatically activated. You can also use:
+The conda environment `AutoQuake_v0` is activated automatically in new terminals.
+To activate it manually:
 ```bash
-aq  # Quick alias to activate environment
+conda activate AutoQuake_v0
 ```
 
 ### Development Tools
 ```bash
-# You can create your own aliases if needed, such as:
-conda activate AutoQuake_v0    # Activate environment
-black . && isort .             # Format code
-flake8 .                       # Check code quality
-jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root  # Start Jupyter
-```
-
-### Jupyter Development
-```bash
-aqjupyter   # Start Jupyter Lab on port 8888
+ruff check .                   # Lint
+ruff format .                  # Format (single quotes, 88 cols — see pyproject.toml)
+pytest tests/unit -m "not integration"   # Run the fast unit tests
+jupyter lab --ip=0.0.0.0 --port=8888 --no-browser  # Start Jupyter Lab
 ```
 
 ### Testing Your Setup
 ```bash
 conda activate AutoQuake_v0    # Ensure environment is active
-python -c "import autoquake; print('AutoQuake loaded successfully')"  # Test AutoQuake import
+python -c "import autoquake; print('AutoQuake loaded successfully')"  # Test import
 ```
 
 ## 📁 Project Structure
@@ -97,9 +90,8 @@ This environment is prepared for real-time seismic data processing with:
 ## 🔧 Customization
 
 ### Adding Dependencies
-1. Update `env.yml` for conda packages
-2. Update `requirements.txt` for pip packages
-3. Rebuild the container
+1. Add the package to `env.yml` (local/CI) **and** `env-codespace.yml` (Codespaces)
+2. Rebuild the container ("Dev Containers: Rebuild Container")
 
 ### VS Code Settings
 Modify `.devcontainer/devcontainer.json` to customize:
@@ -119,24 +111,24 @@ Add system packages in the Dockerfile under the apt-get install section.
 
 ### Python Environment Issues
 ```bash
-conda activate AutoQuake_v0  # Ensure environment is active
-python dev-utils.py          # Check environment status
+conda activate AutoQuake_v0   # Ensure environment is active
+conda env list                # Confirm AutoQuake_v0 exists
 ```
 
 ### Import Errors
-```bash
-pip install -e .  # Reinstall AutoQuake in development mode
-```
+The project runs from the repository root (pytest adds it to `sys.path` via
+`pyproject.toml`). If `import autoquake` fails, make sure your working directory
+is the repo root and the conda environment is active.
 
 ### Port Conflicts
 The container forwards ports 8888, 8080, and 5000. Modify `devcontainer.json` if needed.
 
 ## 🤝 Contributing
 
-1. The environment automatically sets up pre-commit hooks
-2. Code is automatically formatted on save
-3. Run tests before committing: `aqtest`
-4. Follow the existing code style (Black formatting)
+1. The environment automatically sets up pre-commit hooks (commit + push)
+2. Code is automatically formatted on save by Ruff
+3. Run tests before committing: `pytest tests/unit -m "not integration"`
+4. Follow the existing code style (Ruff: single quotes, 88-column lines)
 
 ## 📝 Notes for Real-time Development
 
@@ -149,7 +141,7 @@ When implementing real-time features:
 ## 🆘 Getting Help
 
 - Check the main AutoQuake README for project-specific information
-- Run `python dev-utils.py` for environment diagnostics
+- Run `conda env list` and `conda list` to inspect the environment
 - Use the VS Code integrated terminal with all tools pre-configured
 
 Happy coding! 🎉

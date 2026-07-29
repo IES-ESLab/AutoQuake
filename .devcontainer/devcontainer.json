@@ -11,67 +11,45 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				// Python Development
+				// Python (ruff is the single linter/formatter — matches pyproject.toml & CI)
 				"ms-python.python",
-				"ms-python.flake8",
-				"ms-python.pylint",
-				"ms-python.black-formatter",
+				"ms-python.vscode-pylance",
+				"ms-python.debugpy",
 				"charliermarsh.ruff",
-				"ms-python.isort",
+				"kevinrose.vsc-python-indent",
+				"njpwerner.autodocstring",
+
+				// Jupyter / scientific computing
 				"ms-toolsai.jupyter",
-				"ms-toolsai.vscode-jupyter-cell-tags",
-				"ms-toolsai.vscode-jupyter-slideshow",
-				
-				// Scientific Computing & Data Science
 				"ms-toolsai.jupyter-keymap",
 				"ms-toolsai.jupyter-renderers",
-				"ms-python.vscode-pylance",
-				"njpwerner.autodocstring",
-				
-				// Git & Version Control
+				"ms-toolsai.vscode-jupyter-cell-tags",
+				"ms-toolsai.vscode-jupyter-slideshow",
+
+				// Git & GitHub
 				"eamodio.gitlens",
 				"github.vscode-pull-request-github",
 				"github.copilot",
 				"github.copilot-chat",
-				
-				// Documentation & Markdown
+
+				// Docs & config files
 				"yzhang.markdown-all-in-one",
 				"davidanson.vscode-markdownlint",
-				"ms-vscode.vscode-json",
-				
-				// Development Tools
-				"ms-vscode.vscode-yaml",
-				"redhat.vscode-xml",
-				"ms-vscode.cmake-tools",
-				"ms-vscode.cpptools",
-				
-				// Visualization & Plotting
-				"ms-python.debugpy",
-				"kevinrose.vsc-python-indent",
-				"donjayamanne.python-environment-manager",
-				
-				// Remote Development
-				"ms-vscode-remote.remote-containers",
-				"ms-vscode-remote.remote-ssh",
-				"ms-vscode-remote.remote-wsl"
+				"redhat.vscode-yaml"
 			],
 			"settings": {
 				"python.defaultInterpreterPath": "/opt/conda/envs/AutoQuake_v0/bin/python",
 				"python.terminal.activateEnvironment": true,
 				"python.terminal.activateEnvInCurrentTerminal": true,
-				"python.linting.enabled": true,
-				"python.linting.pylintEnabled": false,
-				"python.linting.flake8Enabled": true,
-				"python.formatting.provider": "black",
-				"python.formatting.blackArgs": ["--line-length=88"],
-				"python.sortImports.args": ["--profile", "black"],
-				"ruff.args": ["--config", "pyproject.toml"],
 				"ruff.enable": true,
 				"ruff.organizeImports": true,
 				"editor.formatOnSave": true,
-				"editor.codeActionsOnSave": {
-					"source.organizeImports": "explicit",
-					"source.fixAll.ruff": "explicit"
+				"[python]": {
+					"editor.defaultFormatter": "charliermarsh.ruff",
+					"editor.codeActionsOnSave": {
+						"source.organizeImports.ruff": "explicit",
+						"source.fixAll.ruff": "explicit"
+					}
 				},
 				"files.trimTrailingWhitespace": true,
 				"files.insertFinalNewline": true,

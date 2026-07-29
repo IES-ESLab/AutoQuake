@@ -1,10 +1,11 @@
 import multiprocessing as mp
-import os
+import os, re
 import calendar
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from time import time
+from multiprocessing.pool import Pool
 
 # Absolute path for GAfocal dir
 GAFOCAL_DIR = Path(__file__).parents[1].resolve() / 'GAfocal'
@@ -113,13 +114,44 @@ def pseudo_picks_generator(
 
     return result_df
 
+
+_DELIM = re.compile(r'[._-]')
+def extract_station_id(raw: str, station_ids: set) -> str:
+    """Match a SEED-style id against a reference set without assuming a fixed delimiter.
+
+    Normalizes '.', '_', and '-' to '.' on both sides before checking dot-bounded
+    component membership, so 'TW.00.SHUL.HL', 'TW-00-SHUL-HL', and 'TW_00_SHUL_HL'
+    all resolve correctly to 'SHUL'.
+
+    Edge case: if two components in the raw id both appear as station codes in the
+    reference (e.g. a network code that collides with a station code), the first
+    match wins.  This is extremely unlikely in real seismic datasets.
+    """
+    if raw in station_ids:
+        return raw
+    norm_raw = f'.{_DELIM.sub(".", str(raw))}.'
+    for sid in station_ids:
+        if f'.{_DELIM.sub(".", sid)}.' in norm_raw:
+            return sid
+    return raw
+
 # Processing phasenet picks
-def gamma_preprocessing(pickings: Path, output_dir: Path) -> Path:
-    df = pd.read_csv(pickings)
-    df['station_id'] = df['station_id'].map(lambda x: str(x).split('.')[1])
-    output_path = output_dir/pickings.name
-    df.to_csv(output_path, index=False)
-    return output_path
+def gamma_preprocessing(
+        picks: Path,
+        station: Path,
+        output_dir=None,
+    ):
+        df_picks = pd.read_csv(picks)
+        df_sta = pd.read_csv(station)
+        station_ids = set(df_sta['station'])
+        df_picks['station_id'] = df_picks['station_id'].apply(
+            lambda x: extract_station_id(str(x), station_ids)
+        )
+        df_picks = df_picks[df_picks['station_id'].isin(station_ids)]
+        if output_dir is None:
+            output_dir = picks.parent
+        df_picks.to_csv(output_dir / 'phasenet_picks_for_gamma.csv', index=False)
+        return output_dir / 'phasenet_picks_for_gamma.csv'
 
 # Processing gamma catalog
 def classify_event(row, picks):
@@ -350,6 +382,7 @@ def process_for_h3dd_twice(
     h3dd_picks_first = result_path / f'{event_name_1}_picks.csv'
     return h3dd_events_first, h3dd_picks_first
 
+#NOTE: This function is not clean enough.
 def get_index_table(df: pd.DataFrame) -> pd.DataFrame:
     if 'h3dd_event_index' in df.columns:
         df_table = df.loc[:, ['event_index', 'h3dd_event_index']]
@@ -361,7 +394,7 @@ def get_index_table(df: pd.DataFrame) -> pd.DataFrame:
     assert isinstance(df_table, pd.DataFrame)
     return df_table
 
-
+#NOTE: This function not used.
 def index_h3dd2gamma(df_table: pd.DataFrame, h3dd_index: int):
     if all(col in df_table.columns for col in ['event_index', 'h3dd_event_index']):
         return df_table[df_table['h3dd_event_index'] == h3dd_index]['event_index'].iloc[
@@ -440,11 +473,21 @@ def pol_mag_to_dout(
     ori_dout,
     df_pol: pd.DataFrame,
     output_dout,
-    df_mag_event=pd.DataFrame(),
-    df_mag_pick=pd.DataFrame(),    
+    df_mag_event=pd.DataFrame() | None,
+    df_mag_pick=pd.DataFrame() | None,
     processes=min(20, os.cpu_count() / 2),
-    n_chunks=8
+    n_chunks=8,
+    df_gamma_event: pd.DataFrame | None = None, # Support previous version
     ):
+
+    def _gen_h3dd_index_for_pol(df_pol, df_gamma_event):
+        df = df_gamma_event.sort_values(by='time', key=lambda x: pd.to_datetime(x))
+        df = df.reset_index(drop=True)
+        df['h3dd_event_index'] = df.index
+        index_map = dict(zip(df['event_index'], df['h3dd_event_index']))
+        df_pol['h3dd_event_index'] = df_pol['event_index'].map(index_map)
+        return df_pol
+    
     def _split_file_by_events(filepath, n_chunks):
         """Split file into chunks, each starting with an event line"""
         with open(filepath) as f:
@@ -466,9 +509,13 @@ def pol_mag_to_dout(
         
         return chunks
 
+    if df_gamma_event is not None:
+        print("Mapping h3dd_event_index for polarity DataFrame based on df_gamma_event.")
+        df_pol = _gen_h3dd_index_for_pol(df_pol, df_gamma_event)
+
     chunks = _split_file_by_events(ori_dout, n_chunks=n_chunks)
     start = time()
-    if df_mag_event.empty or df_mag_pick.empty:
+    if df_mag_event is None or df_mag_pick is None:
         print("No magnitude data provided, only updating polarity.")
         args = [(chunk, start_idx, df_pol) for chunk, start_idx in chunks]
         with Pool(processes) as pool:

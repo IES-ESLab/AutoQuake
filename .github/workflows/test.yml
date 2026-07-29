@@ -1,0 +1,95 @@
+name: AutoQuake Tests
+
+on:
+  push:
+    branches: [main, feature-*]
+    paths:
+      - '**.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - 'tests/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [main]
+  # Heavy end-to-end pipeline is opt-in: trigger it by hand from the Actions tab.
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Cheap gate -- runs on every push / PR.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check .
+
+      # - name: Run ruff format check
+      #   run: ruff format --check .
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        # Unit tests only touch the config layer -> pydantic + pandas + pytest.
+        run: pip install pytest pytest-cov pydantic pandas
+
+      - name: Run unit tests
+        run: pytest tests/unit -m "not integration" --cov=ParamConfig --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # Heavy, real pipeline -- manual only, non-blocking. Needs the full conda env,
+  # submodules and the (Linux) h3dd / gafocal binaries.
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration (E2E) Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    needs: [lint, unit-tests]
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up conda environment
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: env.yml
+          activate-environment: AutoQuake
+          auto-activate-base: false
+
+      - name: Run end-to-end integration tests
+        run: pytest tests/integration -m integration --tb=short -rs

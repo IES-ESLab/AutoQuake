@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import logging
 logger = logging.getLogger(__name__)
 import multiprocessing
@@ -106,21 +107,6 @@ class PhaseNet:
         if output_dir is None:
             output_dir = picks.parent
         df_picks.to_csv(output_dir / 'filt_picks.csv', index=False)
-
-    @staticmethod
-    def picks_check(
-        picks: Path,
-        station: Path,
-        get_station=lambda x: str(x).split('.')[1],
-        output_dir=None,
-    ):
-        df_picks = pd.read_csv(picks)
-        df_sta = pd.read_csv(station)
-        df_picks['station_id'] = df_picks['station_id'].map(get_station)
-        df_picks = df_picks[df_picks['station_id'].isin(df_sta['station'])]
-        if output_dir is None:
-            output_dir = picks.parent
-        df_picks.to_csv(output_dir / 'check_picks.csv', index=False)
 
     def postprocess(self, meta, output, polarity_scale=1, event_scale=16):
         nt, nx = meta['nt'], meta['nx']

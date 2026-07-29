@@ -1,11 +1,14 @@
 #%%
 from pathlib import Path
-from collections import Counter
 import pandas as pd
 from typing import Callable, Literal, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 import re
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def default_type_judge(x: str):
     """
@@ -20,18 +23,6 @@ def default_type_judge(x: str):
         "Please customize default_type_judge(station_id) in ParamConfig/config_model.py "
         "for your station naming rule when das_in_data=True."
     )
-
-
-"""
-We set PhaseNet as True, since it's the first step.
-Other steps default as True (since it's an example)
-
-Please note that this flow is an example and demonstrates how to\
-instantiate the classes and run.
-
-We use getter function to automatically pass the arguments, once\
-you familiar with the instantiation, you can switch it to file you want to use. 
-"""
 
 
 class PhaseNetConfig(BaseModel):
@@ -81,7 +72,6 @@ class PhaseNetConfig(BaseModel):
     dtype: str | None = None
     ptdtype: Any | None = None
     rank: int | None = None
-    world_size: int | None = None
     gpu: int | None = None
     distributed: bool | None = None
     dist_bakend: str | None = None
@@ -89,16 +79,11 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
     """
     Parameters for PhaseNet (all parameters including 'mode').
     """
+    enabled: bool
     data_parent_dir: Path
     station_csv: Path
     args_list: list[PhaseNetConfig] | None = None
     date_list: list[str] | None = None  # New attribute to store the list of dates
-
-    def _check_result_path(self):
-        if self.result_path.exists() and any(self.result_path.iterdir()):
-            response = input(f"Warning: '{self.result_path}' exists and is not empty. Overwrite? (y/n): ")
-            if response.lower() != 'y':
-                raise RuntimeError("Operation cancelled by user.")
 
     def _time_code_checker(self):
         # stream_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"
@@ -212,7 +197,9 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
             config_kwargs["data_path"] = data_path
             _gen_list = check_data_list(data_path, self.station_csv, self.data_list, self.format)
             config_kwargs["data_list"] = _gen_list
-            print(f"Available station on {current}: {len(_gen_list)} / {pd.read_csv(self.station_csv).shape[0]}")
+            station_count = pd.read_csv(self.station_csv).shape[0]
+            available = len(_gen_list) if _gen_list is not None else 'N/A'
+            logger.info(f"Available station on {current}: {available} / {station_count}")
             config = PhaseNetConfig(**{k: config_kwargs[k] for k in PhaseNetConfig.model_fields.keys()})
             configs.append(config)
             current = next_time
@@ -236,66 +223,396 @@ class PhaseNetConfigReceiver(PhaseNetConfig):
         - args_list \n
         - date_list
         """
-        self._check_result_path()
         self._time_code_checker()
         self.date_list = self._generate_date_list()  # Generate the date list
         self.args_list = self.generate_configs()
         return self
     
 class GaMMAConfig(BaseModel):
-    station: Path
-    velocity_model: Path
-    center: tuple[float, float]
-    xlim_degree: list[float]
-    ylim_degree: list[float]
-    min_p_picks_per_eq: int
-    min_s_picks_per_eq: int
-    eps: float
-    cpu_number: int
-    use_amplitude: bool
+    """GaMMA configuration with optional external input."""
+    enabled: bool
+    # External input (if skipping PhaseNet)
+    picks_csv: Path | None = None
+    # Required parameters (optional when enabled=False)
+    station: Path | None = None
+    velocity_model: Path | None = None
+    center: tuple[float, float] | None = None
+    xlim_degree: list[float] | None = None
+    ylim_degree: list[float] | None = None
+    min_p_picks_per_eq: int = 6
+    min_s_picks_per_eq: int = 2
+    eps: float = 17.0
+    cpu_number: int = 40
+    use_amplitude: bool = False
 
-class H3DDConfig(BaseModel):
-    station: Path
-    model_3D: Path
-    cutoff_distance_for_first_h3dd: float
-    event_name_for_first_h3dd: str
-    cutoff_distance_for_second_h3dd: float
-    event_name_for_second_h3dd: str
-
-class MagConfig(BaseModel):
-    sac_parent_dir: Path
-    pz_dir: Path
-    station: Path
-    cpu_number: int
-
-class DitingConfig(BaseModel):
-    sac_parent_dir: Path | None = None
-    h5_parent_dir: Path | None = None
-    cpu_number: int = 3
-    chunk_size: int = 50
-    das_in_data: bool = False
-    type_judge: Callable[[str], bool] | None = default_type_judge
-    interval: int = 300
-    sampling_rate: float = 100.0
-    need_resample: bool = False
-
-    @model_validator(mode="after")
-    def validate_type_judge_for_das(self):
-        if self.das_in_data and self.type_judge is None:
-            raise ValueError(
-                "Diting.type_judge cannot be None when das_in_data=True. "
-                "Set a callable or customize default_type_judge()."
-            )
-        if self.das_in_data and self.type_judge is not None and self.type_judge is default_type_judge:
-            # Trigger the default placeholder at config construction time.
-            self.type_judge("STATION_ID_EXAMPLE")
+    @model_validator(mode='after')
+    def validate_required_when_enabled(self):
+        """Validate required fields when enabled."""
+        if self.enabled:
+            required = ['station', 'velocity_model', 'center', 'xlim_degree', 'ylim_degree']
+            for field in required:
+                if getattr(self, field) is None:
+                    raise ValueError(f'{field} is required when GaMMA is enabled')
         return self
 
-class MainConfig(BaseModel):
+class H3DDSingleRunConfig(BaseModel):
+    """Configuration for a single H3DD run."""
+    event_name: str
+    cutoff_distances: float  # Note: singular value for each run
+
+
+class H3DDRunsConfig(BaseModel):
+    """Configuration for H3DD runs (first required, second optional)."""
+    first: H3DDSingleRunConfig
+    second: H3DDSingleRunConfig | None = None
+
+
+class H3DDConfig(BaseModel):
+    """H3DD configuration with nested runs structure."""
+    enabled: bool
+    # External inputs (if skipping GaMMA)
+    events_csv: Path | None = None
+    picks_csv: Path | None = None
+    # Required parameters (optional when enabled=False)
+    station: Path | None = None
+    model_3D: Path | None = None
+    # H3DD algorithm parameters
+    weights: list[float] = [1.0, 1.0, 0.1]
+    priori_weight: list[float] = [1.0, 0.75, 0.5, 0.25, 0.0]
+    inv: int = 2
+    damping_factor: float = 0.0
+    rmscut: float = 1.0e-4
+    max_iter: int = 5
+    constrain_factor: float = 0.0
+    joint_inv_with_single_event_method: int = 1
+    consider_elevation: int = 0
+    # Run configurations
+    runs: H3DDRunsConfig | None = None
+
+    @model_validator(mode='after')
+    def validate_h3dd_config(self):
+        """Validate H3DD configuration."""
+        if self.enabled:
+            # Required fields when enabled
+            if self.station is None:
+                raise ValueError('station is required when H3DD is enabled')
+            if self.model_3D is None:
+                raise ValueError('model_3D is required when H3DD is enabled')
+            # runs.first is required when enabled
+            if self.runs is None:
+                raise ValueError('runs configuration is required when H3DD is enabled')
+            # first run config cannot be empty (already enforced by H3DDRunsConfig)
+        return self
+
+    def get_run_count(self) -> int:
+        """Get the number of runs to execute."""
+        if self.runs is None:
+            return 0
+        return 2 if self.runs.second is not None else 1
+
+    def get_run_config(self, run_index: int) -> H3DDSingleRunConfig | None:
+        """Get configuration for a specific run index (0 or 1)."""
+        if self.runs is None:
+            return None
+        if run_index == 0:
+            return self.runs.first
+        elif run_index == 1:
+            return self.runs.second
+        return None
+
+class MagConfig(BaseModel):
+    """Magnitude calculation configuration."""
+    enabled: bool
+    # External input (if skipping H3DD)
+    dout_file: Path | None = None
+    # Required parameters (optional when enabled=False)
+    sac_parent_dir: Path | None = None
+    pz_dir: Path | None = None
+    station: Path | None = None
+    cpu_number: int = 40
+
+    @model_validator(mode='after')
+    def validate_required_when_enabled(self):
+        """Validate required fields when enabled."""
+        if self.enabled:
+            if self.sac_parent_dir is None:
+                raise ValueError('sac_parent_dir is required when Magnitude is enabled')
+            if self.pz_dir is None:
+                raise ValueError('pz_dir is required when Magnitude is enabled')
+            if self.station is None:
+                raise ValueError('station is required when Magnitude is enabled')
+        return self
+
+
+class DitingConfig(BaseModel):
+    enabled: bool
+    picks_csv: Path | None = None
+    sac_parent_dir: Path | None = None
+    cpu_number: int = 3
+    chunk_size: int = 50
+    sampling_rate: float = 100.0
+    need_resample: bool = True    
+    # h5_parent_dir: Path | None = None    
+    # das_in_data: bool = False
+    # type_judge: Callable[[str], bool] | None = default_type_judge
+    # interval: int = 300
+
+    # @model_validator(mode="after")
+    # def validate_type_judge_for_das(self):
+    #     if self.das_in_data and self.type_judge is None:
+    #         raise ValueError(
+    #             "Diting.type_judge cannot be None when das_in_data=True. "
+    #             "Set a callable or customize default_type_judge()."
+    #         )
+    #     if self.das_in_data and self.type_judge is not None and self.type_judge is default_type_judge:
+    #         # Trigger the default placeholder at config construction time.
+    #         self.type_judge("STATION_ID_EXAMPLE")
+    #     return self
+
+    # @model_validator(mode='after')
+    # def validate_required_when_enabled(self):
+    #     """Validate required fields when enabled."""
+    #     if self.enabled:
+    #         if self.sac_parent_dir is None and self.h5_parent_dir is None:
+    #             raise ValueError(
+    #                 'Either sac_parent_dir or h5_parent_dir is required when Polarity is enabled'
+    #             )
+    #     return self
+
+
+class FocalConfig(BaseModel):
+    """GAfocal configuration."""
+    enabled: bool
+    # External input
+    dout_file: Path | None = None
+
+
+# =============================================================================
+# Path Resolver (smart path detection)
+# =============================================================================
+class PathResolver:
+    """
+    Resolves input paths for pipeline components.
+    Priority: explicit path > auto-detect in result_path > raise error
+    """
+
+    def __init__(self, result_path: Path):
+        self.result_path = Path(result_path)
+
+    def resolve_picks(self, explicit_path: Path | None = None) -> Path:
+        """Resolve picks CSV file path."""
+        if explicit_path:
+            path = Path(explicit_path)
+            if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, phase, time等必要欄位）
+                return path
+            raise FileNotFoundError(f'Explicit picks_csv not found: {explicit_path}')
+
+        # # Auto-detect candidates
+        # candidates = [
+        #     self.result_path / 'phase_picks.csv',
+        #     self.result_path / 'picks_phasenet.csv',
+        #     self.result_path / 'gamma_picks.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected picks file: {candidate}')
+        #         return candidate
+
+        # raise FileNotFoundError(
+        #     f'Cannot find picks CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
+
+    def resolve_gamma_picks(self, explicit_path: Path | None = None) -> Path:
+        """Resolve GaMMA picks CSV file path."""
+        if explicit_path:
+            path = Path(explicit_path)
+            if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, phase, time等必要欄位）
+                return path
+            raise FileNotFoundError(f'Explicit picks_csv not found: {explicit_path}')
+
+        # candidates = [
+        #     self.result_path / 'gamma_picks.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected GaMMA picks file: {candidate}')
+        #         return candidate
+
+        # raise FileNotFoundError(
+        #     f'Cannot find GaMMA picks CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
+
+    def resolve_gamma_events(self, explicit_path: Path | None = None) -> Path:
+        """Resolve GaMMA events CSV file path."""
+        if explicit_path:
+            path = Path(explicit_path)
+            if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, latitude, longitude, depth, origin_time等必要欄位）
+                return path
+            raise FileNotFoundError(f'Explicit events_csv not found: {explicit_path}')
+
+        # candidates = [
+        #     self.result_path / 'gamma_event.csv',
+        #     self.result_path / 'gamma_events.csv',
+        #     self.result_path / 'events.csv',
+        # ]
+        # for candidate in candidates:
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected events file: {candidate}')
+        #         return candidate
+
+        # raise FileNotFoundError(
+        #     f'Cannot find events CSV in {self.result_path}. '
+        #     f'Searched: {[c.name for c in candidates]}'
+        # )
+
+    def resolve_dout(self, explicit_path: Path | None = None, event_name: str | None = None) -> Path:
+        """Resolve dout file path."""
+        if explicit_path:
+            path = Path(explicit_path)
+            if path.exists():
+                #TODO: 這裡不只檢查存在，應該順便檢查格式和內容是否合理（至少有event_id, latitude, longitude, depth, origin_time等必要欄位）
+                return path
+            raise FileNotFoundError(f'Explicit dout_file not found: {explicit_path}')
+
+        # # Try with event_name first
+        # if event_name:
+        #     candidate = self.result_path / f'{event_name}.dout'
+        #     if candidate.exists():
+        #         logger.info(f'Auto-detected dout file: {candidate}')
+        #         return candidate
+
+        # # Search for any .dout file
+        # dout_files = list(self.result_path.glob('*.dout'))
+        # if dout_files:
+        #     # Sort by modification time, use most recent
+        #     dout_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        #     logger.info(f'Auto-detected dout file: {dout_files[0]}')
+        #     return dout_files[0]
+
+        # raise FileNotFoundError(f'Cannot find dout file in {self.result_path}')
+
+
+# =============================================================================
+# Run Configuration (single pipeline run)
+# =============================================================================
+class RunConfig(BaseModel):
+    """Configuration for a single pipeline run."""
+    name: str = 'default'
     result_path: Path
-    PhaseNet: PhaseNetConfigReceiver
-    GaMMA: GaMMAConfig
-    H3DD: H3DDConfig
-    Mag: MagConfig
-    Diting: DitingConfig
+    # Optional components (None or enabled=False means skip)
+    PhaseNet: PhaseNetConfigReceiver | None = None
+    GaMMA: GaMMAConfig | None = None
+    H3DD: H3DDConfig | None = None
+    Magnitude: MagConfig | None = None
+    Polarity: DitingConfig | None = None
+    Focal: FocalConfig | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def inject_result_path(cls, data: dict) -> dict:
+        """Inject pipeline result_path into PhaseNet config before construction."""
+        if isinstance(data.get('PhaseNet'), dict):
+            data['PhaseNet']['result_path'] = data['result_path']
+        return data
+
+    def _check_result_path(self):
+        if self.result_path.exists() and any(self.result_path.iterdir()):
+            logger.warning(f"Result path '{self.result_path}' exists and is not empty.")
+        else:
+            self.result_path.mkdir(parents=True, exist_ok=True)
+            
+    def is_component_enabled(self, component_name: str) -> bool:
+        """Check if a component is enabled."""
+        component = getattr(self, component_name, None)
+        if component is None:
+            return False
+        return getattr(component, 'enabled', False) # default as False to prevent unnecessary processing.
+
+    @model_validator(mode='after')
+    def validate_dependencies(self):
+        """Validate that enabled components have required inputs."""
+        self._check_result_path()
+        # GaMMA needs picks
+        if self.is_component_enabled('GaMMA'):
+            if not self.is_component_enabled('PhaseNet') and not self.GaMMA.picks_csv:
+                raise ValueError(
+                    'GaMMA is enabled but PhaseNet is not, and no picks_csv provided. '
+                    'Set GaMMA.picks_csv to an explicit path or enable PhaseNet.'
+                )
+
+        # H3DD needs events and picks
+        if self.is_component_enabled('H3DD'):
+            if not self.is_component_enabled('GaMMA'):
+                if not self.H3DD.events_csv or not self.H3DD.picks_csv:
+                    raise ValueError(
+                        'H3DD is enabled but GaMMA is not, and events_csv/picks_csv not fully provided. '
+                        'Set H3DD.events_csv and H3DD.picks_csv explicitly, or enable GaMMA.'
+                    )
+
+        # Magnitude needs dout
+        if self.is_component_enabled('Magnitude'):
+            if not self.is_component_enabled('H3DD') and not self.Magnitude.dout_file:
+                raise ValueError(
+                    'Magnitude is enabled but H3DD is not, and no dout_file provided. '
+                    'Set Magnitude.dout_file to an explicit path, or enable H3DD.'
+                )
+
+        # Polarity needs picks
+        if self.is_component_enabled('Polarity'):
+            # Priority: GaMMA output > PhaseNet output > manual file.
+            # To avoid stale/wrong manual file usage, only allow manual file when
+            # both upstream producers are disabled.
+            if self.Polarity.picks_csv and (
+                self.is_component_enabled('GaMMA') or self.is_component_enabled('PhaseNet')
+            ):
+                raise ValueError(
+                    'Polarity.picks_csv can only be set when both GaMMA and PhaseNet are disabled. '
+                    'Set Polarity.picks_csv to null, or disable upstream components.'
+                )
+                        
+            if self.is_component_enabled('GaMMA'):
+                logger.info('Polarity will use picks from GaMMA output.')
+            elif self.is_component_enabled('PhaseNet'):
+                logger.info('Polarity will use picks from PhaseNet output.')
+            elif self.Polarity.picks_csv:
+                logger.info(f'Polarity will use manual picks from {self.Polarity.picks_csv}.')
+            else:
+                raise ValueError(
+                    'Polarity is enabled but no valid picks source is available. '
+                    'Please enable GaMMA or PhaseNet, or provide Polarity.picks_csv.'
+                )
+
+        # Focal needs dout + polarity information
+        if self.is_component_enabled('Focal'):
+            if not self.is_component_enabled('H3DD') and not self.is_component_enabled('Polarity') and not self.Focal.dout_file:
+                raise ValueError(
+                    'Focal is enabled but H3DD and Polarity are not, and no dout_file provided. '
+                    'Set Focal.dout_file to an explicit path, or enable H3DD and Polarity.'
+                )
+
+        return self
+
+
+# =============================================================================
+# Batch Configuration (multiple runs)
+# =============================================================================
+class BatchConfig(BaseModel):
+    """Configuration for batch execution of multiple pipeline runs."""
+    configs: list[RunConfig]
+
+    @model_validator(mode='before')
+    @classmethod
+    def handle_legacy_format(cls, data: dict) -> dict:
+        """Handle legacy single-config format for backward compatibility."""
+        if 'configs' not in data:
+            # Legacy format: single config at root level
+            # Extract result_path and wrap as single RunConfig
+            logger.info('Detected legacy config format, converting to batch format.')
+            return {'configs': [data]}
+        return data
 # %%

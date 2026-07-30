@@ -18,6 +18,8 @@ import torch.multiprocessing as mp
 import torch.utils.data
 from tqdm import tqdm
 
+from autoquake.runtime import effective_workers, limit_native_threads
+
 from .EQNet import utils
 from .EQNet.eqnet import models  # noqa: F401
 from .EQNet.eqnet.data import DASIterableDataset, SeismicTraceIterableDataset
@@ -40,6 +42,30 @@ from ParamConfig.config_model import PhaseNetConfig
 # mp.set_start_method("spawn", force=True)
 # log_dir = Path(__file__).parents[1].resolve() / 'log'
 matplotlib.use('agg')
+_dataloader_thread_limiter = None
+
+
+def _configure_prediction_threads(requested: int, device: str) -> int:
+    effective = effective_workers(requested) if device == 'cpu' else 1
+    torch.set_num_threads(effective)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        logger.warning('PyTorch inter-op threads were already initialized')
+    logger.info(
+        'PhaseNet prediction threads: requested=%d, effective=%d, device=%s',
+        requested,
+        effective,
+        device,
+    )
+    return effective
+
+
+def _init_dataloader_worker(_worker_id: int) -> None:
+    global _dataloader_thread_limiter
+    _dataloader_thread_limiter = limit_native_threads(1)
+    torch.set_num_threads(1)
+
 
 class PhaseNet:
     def __init__(
@@ -493,6 +519,7 @@ class PhaseNet:
         Then the conversion will automatically happen in the SeismicTraceIterableDataset creation.
         """
         args = self.args
+        _configure_prediction_threads(args.prediction_threads, args.device)
         pick_path, event_path, figure_path = [str(x) for x in self._check_output_dir(
             starttime=args.start,
             model=args.model,
@@ -582,11 +609,20 @@ class PhaseNet:
             sampler = None
         else:
             raise ('Unknown model')  # type: ignore
+        loader_workers = (
+            0 if args.workers == 0 else effective_workers(args.workers)
+        )
+        logger.info(
+            'PhaseNet DataLoader workers: requested=%d, effective=%d',
+            args.workers,
+            loader_workers,
+        )
         data_loader = torch.utils.data.DataLoader(
             dataset,
             batch_size=args.batch_size,
             sampler=sampler,
-            num_workers=min(args.workers, mp.cpu_count()),
+            num_workers=loader_workers,
+            worker_init_fn=_init_dataloader_worker if loader_workers else None,
             collate_fn=None,
             drop_last=False,
         )

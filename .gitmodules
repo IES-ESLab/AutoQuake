@@ -1,6 +1,6 @@
 [submodule "autoquake/GaMMA"]
 	path = autoquake/GaMMA
-	url = ../GaMMA.git
+	url = https://github.com/hsian-coding/GaMMA.git
 [submodule "autoquake/EQNet"]
 	path = autoquake/EQNet
 	url = ../EQNet.git

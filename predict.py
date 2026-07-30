@@ -105,7 +105,8 @@ def run_pipeline(config: RunConfig) -> None:
             min_s_picks_per_eq=config.GaMMA.min_s_picks_per_eq,
             dbscan_eps=config.GaMMA.eps,
             ncpu=config.GaMMA.cpu_number,
-            use_amplitude=config.GaMMA.use_amplitude
+            use_amplitude=config.GaMMA.use_amplitude,
+            max_sigma11=config.GaMMA.max_sigma11,
         )
         gamma.run_predict()
         gamma_events = gamma.get_events()

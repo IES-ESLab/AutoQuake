@@ -18,7 +18,11 @@ import torch.multiprocessing as mp
 import torch.utils.data
 from tqdm import tqdm
 
-from autoquake.runtime import effective_workers, limit_native_threads
+from autoquake.runtime import (
+    configure_torch_threads,
+    effective_workers,
+    initialize_torch_worker,
+)
 
 from .EQNet import utils
 from .EQNet.eqnet import models  # noqa: F401
@@ -42,15 +46,13 @@ from ParamConfig.config_model import PhaseNetConfig
 # mp.set_start_method("spawn", force=True)
 # log_dir = Path(__file__).parents[1].resolve() / 'log'
 matplotlib.use('agg')
-_dataloader_thread_limiter = None
 
 
 def _configure_prediction_threads(requested: int, device: str) -> int:
-    effective = effective_workers(requested) if device == 'cpu' else 1
-    torch.set_num_threads(effective)
-    try:
-        torch.set_num_interop_threads(1)
-    except RuntimeError:
+    effective, interop_configured = configure_torch_threads(
+        torch, requested, device
+    )
+    if not interop_configured:
         logger.warning('PyTorch inter-op threads were already initialized')
     logger.info(
         'PhaseNet prediction threads: requested=%d, effective=%d, device=%s',
@@ -62,9 +64,7 @@ def _configure_prediction_threads(requested: int, device: str) -> int:
 
 
 def _init_dataloader_worker(_worker_id: int) -> None:
-    global _dataloader_thread_limiter
-    _dataloader_thread_limiter = limit_native_threads(1)
-    torch.set_num_threads(1)
+    initialize_torch_worker(torch)
 
 
 class PhaseNet:

@@ -4,12 +4,34 @@ import os
 
 from threadpoolctl import threadpool_limits
 
+_worker_thread_limiter = None
+
 
 def limit_native_threads(limit: int = 1):
     """Apply a persistent native thread limit in the current worker."""
     if limit < 1:
         raise ValueError('Native thread limit must be at least 1')
     return threadpool_limits(limits=limit)
+
+
+def configure_torch_threads(
+    torch_module, requested: int, device: str
+) -> tuple[int, bool]:
+    """Set independent inference and inter-op thread limits."""
+    effective = effective_workers(requested) if device == 'cpu' else 1
+    torch_module.set_num_threads(effective)
+    try:
+        torch_module.set_num_interop_threads(1)
+    except RuntimeError:
+        return effective, False
+    return effective, True
+
+
+def initialize_torch_worker(torch_module) -> None:
+    """Keep a DataLoader worker on one native and one PyTorch thread."""
+    global _worker_thread_limiter
+    _worker_thread_limiter = limit_native_threads(1)
+    torch_module.set_num_threads(1)
 
 
 def visible_cpu_count() -> int:

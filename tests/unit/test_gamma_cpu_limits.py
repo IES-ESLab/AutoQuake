@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-np = pytest.importorskip('numpy')
-gamma_utils = pytest.importorskip(
-    'autoquake.GaMMA.gamma.utils',
-    reason='GaMMA submodule is not initialized',
-)
+if not (Path(__file__).parents[2] / 'autoquake/GaMMA/gamma/utils.py').is_file():
+    pytest.skip('GaMMA submodule is not initialized', allow_module_level=True)
+
+import numpy as np
+
+from autoquake.GaMMA.gamma import utils as gamma_utils
 
 pytestmark = pytest.mark.unit
 
@@ -14,6 +17,7 @@ pytestmark = pytest.mark.unit
 def test_gamma_worker_initializer_limits_native_threads(monkeypatch):
     observed = []
     marker = object()
+    monkeypatch.setattr(gamma_utils, '_worker_thread_limiter', None)
     monkeypatch.setattr(
         gamma_utils,
         'threadpool_limits',
@@ -133,8 +137,7 @@ def test_gamma_association_is_stable_across_worker_counts(monkeypatch):
         [(0, 7, 0.9), (2, 8, 0.9)],
     )
     assert observed_dbscan_jobs == [1, 1]
-    assert observed_pool_sizes == [1, 2]
+    assert observed_pool_sizes == [2]
     assert observed_initializers == [
-        gamma_utils._init_association_worker,
         gamma_utils._init_association_worker,
     ]

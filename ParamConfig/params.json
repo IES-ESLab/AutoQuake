@@ -22,6 +22,7 @@
                 "phases": ["P", "S"],
                 "device": "cpu",
                 "workers": 0,
+                "prediction_threads": 10,
                 "batch_size": 1,
                 "use_deterministic_algorithms": true,
                 "amp": true,
@@ -58,7 +59,8 @@
                 "min_s_picks_per_eq": 2,
                 "eps": 17.0,
                 "cpu_number": 40,
-                "use_amplitude": false
+                "use_amplitude": false,
+                "max_sigma11": 0.5
             },
 
             "H3DD": {

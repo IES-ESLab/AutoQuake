@@ -44,7 +44,8 @@ class PhaseNetConfig(BaseModel):
     backbone: str = "unet"
     phases: list[str] = ["P", "S"]
     device: str = "cpu"
-    workers: int = 0
+    workers: int = Field(default=0, ge=0)
+    prediction_threads: int = Field(default=1, ge=1)
     batch_size: int = 1
     use_deterministic_algorithms: bool = True
     amp: bool = True
@@ -242,8 +243,9 @@ class GaMMAConfig(BaseModel):
     min_p_picks_per_eq: int = 6
     min_s_picks_per_eq: int = 2
     eps: float = 17.0
-    cpu_number: int = 40
+    cpu_number: int = Field(default=40, ge=1)
     use_amplitude: bool = False
+    max_sigma11: float = 2.0
 
     @model_validator(mode='after')
     def validate_required_when_enabled(self):
